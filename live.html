@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Analysis - Expression Analyser</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-brand">
+        <div class="logo-icon"><i class="fas fa-smile-beam"></i></div>
+        <span class="brand-name">Expression <strong style="color:var(--primary)">Analyser</strong></span>
+      </div>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="live.html" class="active">Live Analysis</a></li>
+        <li><a href="upload.html">Upload</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="settings.html">Settings</a></li>
+      </ul>
+      <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
+    </div>
+  </nav>
+
+  <!-- Live Analysis Page -->
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <h1><i class="fas fa-video"></i> Live Analysis</h1>
+        <p>Real-time emotion detection with WebRTC multi-participant support</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" id="toggleWebRTCMode">
+          <i class="fas fa-users"></i> WebRTC Mode
+        </button>
+        <button class="btn btn-primary" id="startCamera">
+          <i class="fas fa-play"></i> Start Camera
+        </button>
+      </div>
+    </div>
+
+    <!-- WebRTC Status Bar (hidden until enabled) -->
+    <div class="webrtc-status-bar" id="webrtcStatusBar" style="margin-bottom:16px;display:none;">
+      <div class="rtc-dot disconnected" id="rtcDot"></div>
+      <span id="rtcStatusText" style="color:var(--text-secondary)">Not connected</span>
+      <span style="margin-left:auto;color:var(--text-secondary);font-size:11px">Room:</span>
+      <input type="text" id="roomIdInput" value="meet-room-001" placeholder="Room ID"
+        style="width:140px;padding:4px 10px;font-size:11px;margin-left:6px;">
+      <button class="btn btn-sm btn-primary" id="joinRoomBtn" style="margin-left:6px;">
+        <i class="fas fa-sign-in-alt"></i> Join
+      </button>
+      <button class="btn btn-sm btn-danger" id="leaveRoomBtn" style="display:none">
+        <i class="fas fa-sign-out-alt"></i> Leave
+      </button>
+    </div>
+
+    <div class="live-layout">
+      <!-- Main Video Area -->
+      <div class="video-section">
+        <div class="video-container">
+          <video id="webcam" autoplay muted playsinline></video>
+          <canvas id="overlay" class="video-overlay"></canvas>
+          <div class="video-status" id="videoStatus">
+            <i class="fas fa-circle" style="font-size:8px"></i>
+            <span id="statusText">Camera Off</span>
+          </div>
+          <!-- Backend latency indicator -->
+          <div id="backendBadge" style="display:none;position:absolute;bottom:12px;left:12px;background:rgba(4,8,15,0.85);padding:5px 12px;border-radius:8px;font-family:var(--fm);font-size:11px;color:var(--primary);border:1px solid var(--border);">
+            <i class="fas fa-server"></i> <span id="latencyMs">—</span>ms
+          </div>
+        </div>
+
+        <!-- WebRTC remote participants (shown when WebRTC mode is active) -->
+        <div id="webrtcParticipantsSection" style="display:none;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:var(--fm);">
+            <i class="fas fa-users" style="color:var(--primary);margin-right:6px"></i>Remote Participants
+          </div>
+          <div class="webrtc-grid" id="remoteParticipantsGrid"></div>
+        </div>
+
+        <div class="video-controls">
+          <button class="btn btn-primary" id="startCameraMain">
+            <i class="fas fa-play"></i> Start Camera
+          </button>
+          <button class="btn btn-secondary" id="captureFrame" disabled>
+            <i class="fas fa-camera"></i> Capture Frame
+          </button>
+          <button class="btn btn-secondary" id="toggleOverlay">
+            <i class="fas fa-eye"></i> Toggle Overlay
+          </button>
+          <button class="btn btn-danger" id="stopCamera" disabled>
+            <i class="fas fa-stop"></i> Stop
+          </button>
+        </div>
+
+        <!-- Current Analysis Card -->
+        <div class="analysis-card">
+          <h3><i class="fas fa-brain"></i> Current Detection</h3>
+          <div class="current-emotion">
+            <div class="emotion-icon" id="emotionIcon">
+              <i class="fas fa-meh"></i>
+            </div>
+            <div class="emotion-details">
+              <div class="emotion-name" id="emotionName">Neutral</div>
+              <div class="emotion-confidence" id="emotionConfidence">0%</div>
+            </div>
+          </div>
+          <div class="emotion-bars" id="emotionBars"></div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Session Info -->
+        <div class="card">
+          <h3><i class="fas fa-clock"></i> Session</h3>
+          <div class="info-grid">
+            <div class="info-item">
+              <span class="label">Duration</span>
+              <span class="value" id="sessionDuration">00:00:00</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Frames</span>
+              <span class="value" id="frameCount">0</span>
+            </div>
+            <div class="info-item">
+              <span class="label">FPS</span>
+              <span class="value" id="fps">0</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Participants</span>
+              <span class="value" id="participantCount">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Backend Connection -->
+        <div class="card">
+          <h3><i class="fas fa-server"></i> Backend</h3>
+          <div class="info-grid" style="margin-bottom:12px">
+            <div class="info-item">
+              <span class="label">Status</span>
+              <span class="value" id="backendStatus" style="color:var(--danger)">Offline</span>
+            </div>
+            <div class="info-item">
+              <span class="label">Model</span>
+              <span class="value" style="font-size:11px">MTCNN+ResNet</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <input type="text" id="backendUrlInput" value="http://localhost:5000"
+              style="flex:1;font-size:11px;padding:6px 10px;">
+            <button class="btn btn-sm btn-primary" id="connectBackendBtn">
+              <i class="fas fa-plug"></i>
+            </button>
+          </div>
+          <div class="setting-group">
+            <label>Analysis Source</label>
+            <select id="analysisSource">
+              <option value="mock">Mock (offline demo)</option>
+              <option value="backend">Python Backend</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div class="card">
+          <h3><i class="fas fa-sliders-h"></i> Settings</h3>
+          <div class="setting-group">
+            <label>Detection Rate</label>
+            <select id="detectionRate">
+              <option value="realtime">Real-time (every frame)</option>
+              <option value="500">Every 500ms</option>
+              <option value="1000" selected>Every 1s</option>
+              <option value="2000">Every 2s</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <label>Confidence Threshold &nbsp;<span id="thresholdValue" style="color:var(--primary);font-family:var(--fm)">50%</span></label>
+            <input type="range" id="confidenceThreshold" min="0" max="100" value="50">
+          </div>
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="showOverlay" checked>
+              Show face detection overlay
+            </label>
+          </div>
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="recordHistory" checked>
+              Record analysis history
+            </label>
+          </div>
+        </div>
+
+        <!-- Live Timeline -->
+        <div class="card timeline-card">
+          <h3><i class="fas fa-history"></i> Timeline</h3>
+          <div class="timeline" id="timeline">
+            <div class="timeline-empty">
+              <i class="fas fa-info-circle"></i>
+              <p>No data yet</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+          <h3><i class="fas fa-bolt"></i> Actions</h3>
+          <button class="btn btn-block" id="exportSession">
+            <i class="fas fa-download"></i> Export Session
+          </button>
+          <button class="btn btn-block" id="clearHistory">
+            <i class="fas fa-trash"></i> Clear History
+          </button>
+          <button class="btn btn-block" id="viewDashboard">
+            <i class="fas fa-chart-pie"></i> View Dashboard
+          </button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Capture Preview Modal -->
+  <div class="modal" id="captureModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Captured Frame</h3>
+        <button class="modal-close" id="closeModal"><i class="fas fa-times"></i></button>
+      </div>
+      <div class="modal-body">
+        <img id="capturedImage" alt="Captured frame">
+        <div class="capture-info" id="captureInfo"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="downloadCapture">
+          <i class="fas fa-download"></i> Download
+        </button>
+        <button class="btn btn-primary" id="closeModal2">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">
+    <i class="fas fa-check-circle"></i>
+    <span id="toastMessage">Success!</span>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="scripts/main.js"></script>
+  <script src="scripts/live.js"></script>
+  <script src="scripts/webrtc.js"></script>
+</body>
+</html>

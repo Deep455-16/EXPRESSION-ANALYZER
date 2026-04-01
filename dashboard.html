@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Expression Analyser</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-brand">
+        <div class="logo-icon"><i class="fas fa-smile-beam"></i></div>
+        <span class="brand-name">Expression <strong style="color:var(--primary)">Analyser</strong></span>
+      </div>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="live.html">Live Analysis</a></li>
+        <li><a href="upload.html">Upload</a></li>
+        <li><a href="dashboard.html" class="active">Dashboard</a></li>
+        <li><a href="settings.html">Settings</a></li>
+      </ul>
+      <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
+    </div>
+  </nav>
+
+  <!-- Dashboard Page -->
+  <div class="page-container">
+    <div class="page-header">
+      <div>
+        <h1><i class="fas fa-chart-line"></i> Analytics Dashboard</h1>
+        <p>Comprehensive insights from your expression analysis sessions</p>
+      </div>
+      <div class="header-actions">
+        <select id="timeRange" class="time-select">
+          <option value="today">📅 Today</option>
+          <option value="week" selected>📊 This Week</option>
+          <option value="month">📈 This Month</option>
+          <option value="all">🔄 All Time</option>
+        </select>
+        <button class="btn btn-primary" id="refreshData">
+          <i class="fas fa-sync-alt"></i> Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="dashboard-summary">
+      <div class="summary-card summary-card-gradient-blue">
+        <div class="summary-icon-wrapper">
+          <div class="summary-icon happy"><i class="fas fa-smile"></i></div>
+        </div>
+        <div class="summary-content">
+          <div class="summary-label">Total Sessions</div>
+          <div class="summary-value" id="totalSessions">0</div>
+          <div class="summary-change positive"><i class="fas fa-arrow-up"></i> +12% this week</div>
+        </div>
+        <div class="summary-sparkline"><i class="fas fa-chart-line"></i></div>
+      </div>
+
+      <div class="summary-card summary-card-gradient-green">
+        <div class="summary-icon-wrapper">
+          <div class="summary-icon info"><i class="fas fa-chart-bar"></i></div>
+        </div>
+        <div class="summary-content">
+          <div class="summary-label">Frames Analyzed</div>
+          <div class="summary-value" id="totalFrames">0</div>
+          <div class="summary-change positive"><i class="fas fa-arrow-up"></i> +8% this week</div>
+        </div>
+        <div class="summary-sparkline"><i class="fas fa-chart-area"></i></div>
+      </div>
+
+      <div class="summary-card summary-card-gradient-purple">
+        <div class="summary-icon-wrapper">
+          <div class="summary-icon success"><i class="fas fa-check-circle"></i></div>
+        </div>
+        <div class="summary-content">
+          <div class="summary-label">Avg Confidence</div>
+          <div class="summary-value" id="avgConfidence">0%</div>
+          <div class="summary-change positive"><i class="fas fa-arrow-up"></i> +3% this week</div>
+        </div>
+        <div class="summary-sparkline"><i class="fas fa-chart-pie"></i></div>
+      </div>
+
+      <div class="summary-card summary-card-gradient-orange">
+        <div class="summary-icon-wrapper">
+          <div class="summary-icon warning"><i class="fas fa-clock"></i></div>
+        </div>
+        <div class="summary-content">
+          <div class="summary-label">Avg Duration</div>
+          <div class="summary-value" id="avgDuration">0m</div>
+          <div class="summary-change"><i class="fas fa-minus"></i> Same as last week</div>
+        </div>
+        <div class="summary-sparkline"><i class="fas fa-stopwatch"></i></div>
+      </div>
+    </div>
+
+    <!-- Charts Grid -->
+    <div class="charts-grid">
+      <div class="chart-container large">
+        <div class="chart-header">
+          <h3><i class="fas fa-chart-line"></i> Emotion Trends Over Time</h3>
+          <div class="chart-controls">
+            <button class="chart-btn active" data-chart="trend" data-type="line">Line</button>
+            <button class="chart-btn" data-chart="trend" data-type="area">Area</button>
+          </div>
+        </div>
+        <canvas id="trendChart" style="height:300px;"></canvas>
+      </div>
+
+      <div class="chart-container">
+        <div class="chart-header">
+          <h3><i class="fas fa-chart-bar"></i> Average Confidence by Emotion</h3>
+        </div>
+        <canvas id="confidenceChart"></canvas>
+      </div>
+
+      <div class="chart-container">
+        <div class="chart-header">
+          <h3><i class="fas fa-chart-pie"></i> Emotion Distribution</h3>
+        </div>
+        <canvas id="distributionChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Recent Sessions Table -->
+    <div class="table-container">
+      <div class="table-header">
+        <h3><i class="fas fa-history"></i> Sessions</h3>
+        <button class="btn btn-secondary" id="exportTable">
+          <i class="fas fa-file-export"></i> Export
+        </button>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Duration</th>
+              <th>Frames</th>
+              <th>Emotion</th>
+              <th>Confidence</th>
+            </tr>
+          </thead>
+          <tbody id="sessionsTable"></tbody>
+        </table>
+      </div>
+      <div class="table-pagination">
+        <button class="btn btn-sm" id="prevPage">
+          <i class="fas fa-chevron-left"></i> Prev
+        </button>
+        <span id="pageInfo">Page 1 of 1</span>
+        <button class="btn btn-sm" id="nextPage">
+          Next <i class="fas fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">
+    <i class="fas fa-check-circle"></i>
+    <span id="toastMessage">Success!</span>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="scripts/main.js"></script>
+  <script src="scripts/dashboard.js"></script>
+</body>
+</html>

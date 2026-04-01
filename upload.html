@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upload & Batch - Expression Analyser</title>
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container">
+      <div class="nav-brand">
+        <div class="logo-icon">
+          <i class="fas fa-smile-beam"></i>
+        </div>
+        <span class="brand-name">Expression <strong style="color:var(--primary)">Analyser</strong></span>
+      </div>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="live.html">Live Analysis</a></li>
+        <li><a href="upload.html" class="active">Upload</a></li>
+        <li><a href="dashboard.html">Dashboard</a></li>
+        <li><a href="settings.html">Settings</a></li>
+      </ul>
+      <button class="mobile-toggle" id="mobileToggle">
+        <i class="fas fa-bars"></i>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Upload Page -->
+  <div class="page-container">
+    <div class="page-header">
+      <h1><i class="fas fa-upload"></i> Upload</h1>
+      <p>Upload images or videos to analyze</p>
+    </div>
+
+    <div class="upload-layout">
+      <!-- Upload Section -->
+      <div class="upload-section">
+        <div class="upload-area" id="uploadArea">
+          <div class="upload-content">
+            <i class="fas fa-cloud-upload-alt fa-4x"></i>
+            <h3>Drop files here</h3>
+            <p>or click to browse</p>
+            <p class="upload-hint">JPG, PNG, MP4, WebM (Max 50MB)</p>
+            <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden>
+            <button class="btn btn-primary" id="browseBtn">
+              <i class="fas fa-folder-open"></i> Browse Files
+            </button>
+          </div>
+        </div>
+
+        <!-- File Queue -->
+        <div class="file-queue" id="fileQueue" style="display: none;">
+          <div class="queue-header">
+            <h3><i class="fas fa-list"></i> Upload Queue</h3>
+            <button class="btn btn-secondary btn-sm" id="clearQueue">
+              <i class="fas fa-times"></i> Clear All
+            </button>
+          </div>
+          <div class="queue-list" id="queueList">
+            <!-- Queue items will be inserted here -->
+          </div>
+          <div class="queue-actions">
+            <button class="btn btn-primary" id="processAll">
+              <i class="fas fa-play"></i> Process All Files
+            </button>
+            <button class="btn btn-secondary" id="exportResults">
+              <i class="fas fa-download"></i> Export Results
+            </button>
+          </div>
+        </div>
+
+        <!-- Processing Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-file"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value" id="totalFiles">0</div>
+              <div class="stat-label">Total Files</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value" id="processedFiles">0</div>
+              <div class="stat-label">Processed</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value" id="processingTime">0s</div>
+              <div class="stat-label">Time Elapsed</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">
+              <i class="fas fa-smile"></i>
+            </div>
+            <div class="stat-content">
+              <div class="stat-value" id="avgEmotion">—</div>
+              <div class="stat-label">Avg Emotion</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Section -->
+      <aside class="results-sidebar">
+        <!-- Current File Preview -->
+        <div class="card">
+          <h3><i class="fas fa-image"></i> Preview</h3>
+          <div class="preview-container" id="previewContainer">
+            <div class="preview-empty">
+              <i class="fas fa-file-image"></i>
+              <p>No file selected</p>
+            </div>
+          </div>
+          <div class="preview-info" id="previewInfo" style="display: none;">
+            <div class="info-row">
+              <span>Filename:</span>
+              <span id="fileName">—</span>
+            </div>
+            <div class="info-row">
+              <span>Size:</span>
+              <span id="fileSize">—</span>
+            </div>
+            <div class="info-row">
+              <span>Type:</span>
+              <span id="fileType">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analysis Result -->
+        <div class="card">
+          <h3><i class="fas fa-chart-pie"></i> Result</h3>
+          <div class="result-container" id="resultContainer">
+            <div class="result-empty">
+              <i class="fas fa-info-circle"></i>
+              <p>No results yet</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Batch Settings -->
+        <div class="card">
+          <h3><i class="fas fa-cog"></i> Settings</h3>
+          <div class="setting-group">
+            <label>Video Sampling Rate</label>
+            <select id="videoSampling">
+              <option value="1">Every frame</option>
+              <option value="5">Every 5 frames</option>
+              <option value="10" selected>Every 10 frames</option>
+              <option value="30">Every 30 frames</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <label>Min Confidence</label>
+            <input type="range" id="minConfidence" min="0" max="100" value="30">
+            <span id="minConfidenceValue">30%</span>
+          </div>
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="autoProcess" checked>
+              Auto-process on upload
+            </label>
+          </div>
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="saveResults" checked>
+              Save results to history
+            </label>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+  </div>
+
+  <!-- Processing Modal -->
+  <div class="modal" id="processingModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Processing Files</h3>
+      </div>
+      <div class="modal-body">
+        <div class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="progress-text">
+            <span id="progressText">Processing...</span>
+            <span id="progressPercent">0%</span>
+          </div>
+        </div>
+        <div class="processing-status" id="processingStatus">
+          Initializing...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">
+    <i class="fas fa-check-circle"></i>
+    <span id="toastMessage">Success!</span>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="scripts/main.js"></script>
+  <script src="scripts/upload.js"></script>
+</body>
+</html>
