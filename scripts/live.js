@@ -42,13 +42,15 @@ function initializePage() {
 }
 
 function setupEventListeners() {
-  // Camera controls
   document.getElementById('startCamera')?.addEventListener('click', toggleCamera);
   document.getElementById('stopCamera')?.addEventListener('click', stopCamera);
   document.getElementById('captureFrame')?.addEventListener('click', captureFrame);
   document.getElementById('toggleOverlay')?.addEventListener('click', toggleOverlay);
+  document.getElementById('startCameraMain')?.addEventListener('click', toggleCamera);
   
-  // Settings
+  // Backend connection
+  document.getElementById('connectBackendBtn')?.addEventListener('click', connectBackend);
+  
   document.getElementById('detectionRate')?.addEventListener('change', (e) => {
     updateDetectionRate(e.target.value);
   });
@@ -57,21 +59,20 @@ function setupEventListeners() {
     document.getElementById('thresholdValue').textContent = e.target.value + '%';
   });
   
-  // Quick actions
   document.getElementById('exportSession')?.addEventListener('click', exportCurrentSession);
   document.getElementById('clearHistory')?.addEventListener('click', clearTimeline);
   document.getElementById('viewDashboard')?.addEventListener('click', () => {
     window.location.href = 'dashboard.html';
   });
   
-  // Modal controls
-  document.getElementById('closeModal')?.addEventListener('click', () => {
-    closeModal('captureModal');
-  });
-  document.getElementById('closeModal2')?.addEventListener('click', () => {
-    closeModal('captureModal');
-  });
+  document.getElementById('closeModal')?.addEventListener('click', () => closeModal('captureModal'));
+  document.getElementById('closeModal2')?.addEventListener('click', () => closeModal('captureModal'));
   document.getElementById('downloadCapture')?.addEventListener('click', downloadCapturedImage);
+  
+  // WebRTC controls
+  document.getElementById('toggleWebRTCMode')?.addEventListener('click', toggleWebRTCMode);
+  document.getElementById('joinRoomBtn')?.addEventListener('click', joinRoom);
+  document.getElementById('leaveRoomBtn')?.addEventListener('click', leaveRoom);
 }
 
 function loadSettings() {
@@ -228,39 +229,45 @@ async function performAnalysis() {
   if (!isRunning || !videoElement) return;
   
   try {
-    // Capture frame
     const canvas = captureVideoFrame(videoElement, videoElement.videoWidth, videoElement.videoHeight);
-    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL('image/jpeg', 0.85);
     
-    // Analyze (mock for now)
-    const result = await analyzeExpression(imageData);
+    const source = document.getElementById('analysisSource')?.value || 'mock';
+    let result;
     
-    // Update UI
+    if (source === 'backend' && BackendAPI.connected) {
+      const start = performance.now();
+      result = await BackendAPI.analyzeFrame(imageData);
+      const latency = Math.round(performance.now() - start);
+      const badge = document.getElementById('backendBadge');
+      const latencyEl = document.getElementById('latencyMs');
+      if (badge) badge.style.display = 'block';
+      if (latencyEl) latencyEl.textContent = latency;
+      
+      if (!result || result.error) {
+        result = await analyzeExpression(null);
+      }
+    } else {
+      result = await analyzeExpression(null);
+    }
+    
     updateAnalysisDisplay(result);
-    
-    // Add to session
     sessionManager.addResult(result);
-    
-    // Add to timeline
     addToTimeline(result);
-    
-    // Update frame counter
     frameCounter++;
     fpsCounter++;
     
-    // Calculate FPS
     const now = Date.now();
     if (now - lastFpsUpdate >= 1000) {
       const fps = document.getElementById('fps');
-      if (fps) {
-        fps.textContent = fpsCounter;
-      }
+      if (fps) fps.textContent = fpsCounter;
       fpsCounter = 0;
       lastFpsUpdate = now;
     }
     
-    // Draw overlay if enabled
-    if (document.getElementById('showOverlay')?.checked) {
+    if (document.getElementById('showOverlay')?.checked && result.face_box) {
+      drawOverlayWithBox(result);
+    } else if (document.getElementById('showOverlay')?.checked) {
       drawOverlay(result);
     }
     
@@ -315,28 +322,38 @@ function updateEmotionBars(emotions) {
 
 function drawOverlay(result) {
   if (!overlayCtx) return;
-  
   overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  
-  // Draw face rectangle (mock position)
   const w = overlayCanvas.width;
   const h = overlayCanvas.height;
   const boxWidth = w * 0.4;
   const boxHeight = h * 0.5;
   const x = (w - boxWidth) / 2;
   const y = (h - boxHeight) / 2;
-  
   overlayCtx.strokeStyle = '#6ee7b7';
   overlayCtx.lineWidth = 3;
   overlayCtx.strokeRect(x, y, boxWidth, boxHeight);
-  
-  // Draw label
   overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
   overlayCtx.fillRect(x, y - 30, 200, 30);
-  
   overlayCtx.fillStyle = '#6ee7b7';
   overlayCtx.font = 'bold 16px Inter';
   overlayCtx.fillText(`${result.dominant} (${result.confidence}%)`, x + 10, y - 10);
+}
+
+function drawOverlayWithBox(result) {
+  if (!overlayCtx || !result.face_box) return;
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  const { x, y, w, h } = result.face_box;
+  const scaleX = overlayCanvas.width / videoElement.videoWidth;
+  const scaleY = overlayCanvas.height / videoElement.videoHeight;
+  overlayCtx.strokeStyle = '#6ee7b7';
+  overlayCtx.lineWidth = 3;
+  overlayCtx.strokeRect(x * scaleX, y * scaleY, w * scaleX, h * scaleY);
+  overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  overlayCtx.fillRect(x * scaleX, y * scaleY - 30, 200, 30);
+  overlayCtx.fillStyle = '#6ee7b7';
+  overlayCtx.font = 'bold 16px Inter';
+  const label = result.concentration ? `${result.dominant} | ${result.concentration.level}%` : `${result.dominant} (${result.confidence}%)`;
+  overlayCtx.fillText(label, x * scaleX + 10, y * scaleY - 10);
 }
 
 function toggleOverlay() {
@@ -508,21 +525,148 @@ function updateUI() {
   const toggleBtn = document.getElementById('toggleOverlay');
   
   if (startBtn) {
-    startBtn.innerHTML = isRunning ? 
-      '<i class="fas fa-pause"></i> Pause' :
-      '<i class="fas fa-play"></i> Start Camera';
+    startBtn.innerHTML = isRunning ? '<i class="fas fa-pause"></i> Pause' : '<i class="fas fa-play"></i> Start Camera';
     startBtn.disabled = false;
   }
+  if (stopBtn) stopBtn.disabled = !isRunning;
+  if (captureBtn) captureBtn.disabled = !isRunning;
+  if (toggleBtn) toggleBtn.disabled = !isRunning;
+}
+
+// ========================================
+// Backend Connection
+// ========================================
+
+async function connectBackend() {
+  const urlInput = document.getElementById('backendUrlInput');
+  if (urlInput) BackendAPI.baseUrl = urlInput.value.replace(/\/$/, '');
   
-  if (stopBtn) {
-    stopBtn.disabled = !isRunning;
-  }
+  const statusEl = document.getElementById('backendStatus');
+  const result = await BackendAPI.checkHealth();
   
-  if (captureBtn) {
-    captureBtn.disabled = !isRunning;
+  if (result && BackendAPI.connected) {
+    if (statusEl) {
+      statusEl.textContent = 'Online';
+      statusEl.style.color = 'var(--success)';
+    }
+    showToast(`Backend connected: ${result.model}`);
+  } else {
+    if (statusEl) {
+      statusEl.textContent = 'Offline';
+      statusEl.style.color = 'var(--danger)';
+    }
+    showToast('Backend not reachable. Using mock mode.', 4000);
   }
+}
+
+// ========================================
+// WebRTC Room Management
+// ========================================
+
+let webrtcModeActive = false;
+let webrtcPollInterval = null;
+
+function toggleWebRTCMode() {
+  webrtcModeActive = !webrtcModeActive;
+  const statusBar = document.getElementById('webrtcStatusBar');
+  const participantsSection = document.getElementById('webrtcParticipantsSection');
+  const btn = document.getElementById('toggleWebRTCMode');
   
-  if (toggleBtn) {
-    toggleBtn.disabled = !isRunning;
+  if (webrtcModeActive) {
+    if (statusBar) statusBar.style.display = 'flex';
+    if (participantsSection) participantsSection.style.display = 'block';
+    if (btn) {
+      btn.innerHTML = '<i class="fas fa-users-slash"></i> Exit WebRTC';
+      btn.classList.remove('btn-secondary');
+      btn.classList.add('btn-danger');
+    }
+    updateRTCStatus('disconnected', 'Not connected');
+    showToast('WebRTC Mode enabled. Join a room to start.');
+  } else {
+    if (statusBar) statusBar.style.display = 'none';
+    if (participantsSection) participantsSection.style.display = 'none';
+    if (btn) {
+      btn.innerHTML = '<i class="fas fa-users"></i> WebRTC Mode';
+      btn.classList.remove('btn-danger');
+      btn.classList.add('btn-secondary');
+    }
+    if (webrtcPollInterval) clearInterval(webrtcPollInterval);
+    showToast('WebRTC Mode disabled.');
   }
+}
+
+async function joinRoom() {
+  const roomId = document.getElementById('roomIdInput')?.value || 'meet-room-001';
+  const result = await BackendAPI.joinRoom(roomId);
+  
+  if (result) {
+    updateRTCStatus('connected', `Connected to ${roomId}`);
+    document.getElementById('joinRoomBtn').style.display = 'none';
+    document.getElementById('leaveRoomBtn').style.display = 'inline-flex';
+    showToast(`Joined room: ${roomId}`);
+    
+    // Start polling for participant updates
+    if (webrtcPollInterval) clearInterval(webrtcPollInterval);
+    webrtcPollInterval = setInterval(() => updateParticipantDisplay(roomId), 2000);
+    updateParticipantDisplay(roomId);
+  } else {
+    showToast('Failed to join room. Check backend connection.', 4000);
+  }
+}
+
+async function leaveRoom() {
+  const roomId = document.getElementById('roomIdInput')?.value || 'meet-room-001';
+  await BackendAPI.leaveRoom(roomId);
+  
+  updateRTCStatus('disconnected', 'Not connected');
+  document.getElementById('joinRoomBtn').style.display = 'inline-flex';
+  document.getElementById('leaveRoomBtn').style.display = 'none';
+  
+  if (webrtcPollInterval) clearInterval(webrtcPollInterval);
+  const grid = document.getElementById('remoteParticipantsGrid');
+  if (grid) grid.innerHTML = '';
+  
+  showToast('Left room.');
+}
+
+function updateRTCStatus(state, text) {
+  const dot = document.getElementById('rtcDot');
+  const statusText = document.getElementById('rtcStatusText');
+  if (dot) {
+    dot.className = `rtc-dot ${state}`;
+  }
+  if (statusText) {
+    statusText.textContent = text;
+  }
+}
+
+async function updateParticipantDisplay(roomId) {
+  const summary = await BackendAPI.getRoomSummary(roomId);
+  if (!summary) return;
+  
+  const grid = document.getElementById('remoteParticipantsGrid');
+  const countEl = document.getElementById('participantCount');
+  if (countEl) countEl.textContent = summary.participant_count;
+  
+  if (!grid) return;
+  
+  grid.innerHTML = Object.entries(summary.participants || {}).map(([pid, data]) => {
+    const conc = data.concentration || 0;
+    const level = conc >= 80 ? 'Highly Focused' : conc >= 60 ? 'Engaged' : conc >= 40 ? 'Moderate' : 'Distracted';
+    const color = conc >= 60 ? 'var(--success)' : conc >= 40 ? 'var(--warning)' : 'var(--danger)';
+    const shortId = pid.slice(0, 8);
+    
+    return `
+      <div class="participant-card" style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:600;font-size:12px;">${shortId}</span>
+          <span style="font-size:11px;color:${color};font-weight:700;">${level}</span>
+        </div>
+        <div style="background:var(--background);border-radius:4px;height:6px;overflow:hidden;">
+          <div style="width:${conc}%;height:100%;background:${color};border-radius:4px;transition:width 0.5s;"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;text-align:right;">${conc}% concentration</div>
+      </div>
+    `;
+  }).join('');
 }

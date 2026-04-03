@@ -50,7 +50,7 @@ function formatDate(date) {
 }
 
 // ========================================
-// Mock ML Analysis Engine
+// Emotion Constants
 // ========================================
 
 const EMOTIONS = ['happy', 'sad', 'angry', 'surprised', 'fear', 'disgust', 'neutral'];
@@ -65,34 +65,107 @@ const EMOTION_ICONS = {
   neutral: 'fa-meh'
 };
 
-// Mock emotion detection (replace with real ML model)
+// ========================================
+// Backend API Client
+// ========================================
+
+const BackendAPI = {
+  baseUrl: 'http://localhost:5000',
+  connected: false,
+  participantId: 'local_' + Date.now(),
+
+  async checkHealth() {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/health`);
+      const data = await res.json();
+      this.connected = true;
+      return data;
+    } catch (e) {
+      this.connected = false;
+      return null;
+    }
+  },
+
+  async analyzeFrame(imageData, participantId = null) {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData, participant_id: participantId || this.participantId })
+      });
+      return await res.json();
+    } catch (e) {
+      console.error('Backend analysis failed:', e);
+      return null;
+    }
+  },
+
+  async analyzeUpload(file, sampling = 10) {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('sampling', sampling);
+      const res = await fetch(`${this.baseUrl}/api/analyze/upload`, { method: 'POST', body: formData });
+      return await res.json();
+    } catch (e) {
+      console.error('Upload analysis failed:', e);
+      return null;
+    }
+  },
+
+  async getParticipants(room = '') {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/participants?room=${room}`);
+      return await res.json();
+    } catch (e) { return {}; }
+  },
+
+  async joinRoom(roomId, participantId = null) {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/room/${roomId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participant_id: participantId || this.participantId })
+      });
+      const data = await res.json();
+      if (data.participant_id) this.participantId = data.participant_id;
+      return data;
+    } catch (e) { return null; }
+  },
+
+  async leaveRoom(roomId, participantId = null) {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/room/${roomId}/leave`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participant_id: participantId || this.participantId })
+      });
+      return await res.json();
+    } catch (e) { return null; }
+  },
+
+  async getRoomSummary(roomId) {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/room/${roomId}/summary`);
+      return await res.json();
+    } catch (e) { return null; }
+  }
+};
+
+// ========================================
+// Mock ML Analysis Engine (fallback)
+// ========================================
+
 function analyzeExpression(imageData) {
-  // Simulate processing time
   return new Promise((resolve) => {
     setTimeout(() => {
-      // Generate mock probabilities with some randomness
       const scores = EMOTIONS.map(() => Math.random());
       const total = scores.reduce((a, b) => a + b, 0);
-      
-      // Normalize to percentages
       const normalized = scores.map(s => Math.round((s / total) * 100));
-      
-      // Create result object
       const result = {};
-      EMOTIONS.forEach((emotion, i) => {
-        result[emotion] = normalized[i];
-      });
-      
-      // Find dominant emotion
+      EMOTIONS.forEach((emotion, i) => { result[emotion] = normalized[i]; });
       const dominant = EMOTIONS[normalized.indexOf(Math.max(...normalized))];
-      const confidence = Math.max(...normalized);
-      
-      resolve({
-        emotions: result,
-        dominant,
-        confidence,
-        timestamp: new Date().toISOString()
-      });
+      resolve({ emotions: result, dominant, confidence: Math.max(...normalized), timestamp: new Date().toISOString() });
     }, 100);
   });
 }

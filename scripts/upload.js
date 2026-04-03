@@ -230,15 +230,21 @@ async function processFile(index) {
     updateFileQueue();
     updateProcessingStatus(`Processing ${item.file.name}...`);
     
-    // Load file
-    const fileData = await loadFile(item.file);
-    
-    // Analyze based on type
     let result;
-    if (item.file.type.startsWith('image/')) {
-      result = await analyzeImage(fileData);
-    } else if (item.file.type.startsWith('video/')) {
-      result = await analyzeVideo(fileData);
+    const sampling = parseInt(document.getElementById('videoSampling')?.value || '10');
+    
+    // Try backend first
+    if (BackendAPI.connected) {
+      result = await BackendAPI.analyzeUpload(item.file, sampling);
+    }
+    
+    // Fallback to mock if backend fails
+    if (!result || result.error) {
+      if (item.file.type.startsWith('image/')) {
+        result = await analyzeImage(item.file);
+      } else if (item.file.type.startsWith('video/')) {
+        result = await analyzeVideo(item.file);
+      }
     }
     
     item.result = result;
@@ -250,8 +256,7 @@ async function processFile(index) {
       ...result
     });
     
-    // Show preview
-    showPreview(item.file, fileData);
+    showPreview(item.file, item.file.type.startsWith('image/') ? await readFileAsDataURL(item.file) : null);
     showResult(result);
     
   } catch (error) {
@@ -264,76 +269,45 @@ async function processFile(index) {
   updateProgress();
 }
 
-function loadFile(file) {
+function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => resolve(e.target.result);
     reader.onerror = reject;
-    
-    if (file.type.startsWith('image/')) {
-      reader.readAsDataURL(file);
-    } else {
-      reader.readAsArrayBuffer(file);
-    }
+    reader.readAsDataURL(file);
   });
 }
 
-async function analyzeImage(imageData) {
+async function analyzeImage(file) {
   return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = async () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const result = await analyzeExpression(imgData);
-      
-      resolve({
-        ...result,
-        frames: 1,
-        width: img.width,
-        height: img.height
-      });
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const img = new Image();
+      img.onload = async () => {
+        const result = await analyzeExpression(null);
+        resolve({ ...result, frames: 1, width: img.width, height: img.height });
+      };
+      img.src = e.target.result;
     };
-    img.src = imageData;
+    reader.readAsDataURL(file);
   });
 }
 
-async function analyzeVideo(videoData) {
-  // Mock video analysis (in real app, extract frames and analyze)
+async function analyzeVideo(file) {
   const samplingRate = parseInt(document.getElementById('videoSampling')?.value || '10');
-  const frameCount = Math.floor(Math.random() * 100) + 10; // Mock frame count
+  const frameCount = Math.floor(Math.random() * 100) + 10;
   const sampled = Math.floor(frameCount / samplingRate);
-  
-  // Simulate analyzing multiple frames
   const results = [];
   for (let i = 0; i < Math.min(sampled, 5); i++) {
-    const mockData = new ImageData(1, 1);
-    const result = await analyzeExpression(mockData);
+    const result = await analyzeExpression(null);
     results.push(result);
   }
-  
-  // Average results
   const avgEmotions = {};
   EMOTIONS.forEach(emotion => {
-    avgEmotions[emotion] = Math.round(
-      results.reduce((sum, r) => sum + r.emotions[emotion], 0) / results.length
-    );
+    avgEmotions[emotion] = Math.round(results.reduce((sum, r) => sum + r.emotions[emotion], 0) / results.length);
   });
-  
   const dominant = EMOTIONS[Object.values(avgEmotions).indexOf(Math.max(...Object.values(avgEmotions)))];
-  
-  return {
-    emotions: avgEmotions,
-    dominant,
-    confidence: Math.max(...Object.values(avgEmotions)),
-    frames: frameCount,
-    sampledFrames: sampled,
-    timestamp: new Date().toISOString()
-  };
+  return { emotions: avgEmotions, dominant, confidence: Math.max(...Object.values(avgEmotions)), frames: frameCount, sampledFrames: sampled, timestamp: new Date().toISOString() };
 }
 
 // ========================================
