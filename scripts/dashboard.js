@@ -176,7 +176,7 @@ function initializeCharts() {
           legend: {
             position: 'top',
             labels: {
-              color: '#6b8aab',
+              color: '#1e293b',
               font: {
                 size: 13,
                 weight: '600',
@@ -189,7 +189,7 @@ function initializeCharts() {
           },
           tooltip: {
             backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#e8f4ff',
+            titleColor: '#ffffff',
             bodyColor: '#ffffff',
             padding: 12,
             titleFont: {
@@ -214,10 +214,10 @@ function initializeCharts() {
                 weight: '600',
                 family: "'Inter', sans-serif"
               },
-              color: '#4a6480'
+              color: '#475569'
             },
             grid: {
-              color: 'rgba(16,185,129,0.07)',
+              color: 'rgba(0, 0, 0, 0.06)',
               drawBorder: false
             }
           },
@@ -228,7 +228,7 @@ function initializeCharts() {
                 weight: '600',
                 family: "'Inter', sans-serif"
               },
-              color: '#6b8aab'
+              color: '#1e293b'
             },
             grid: {
               display: false,
@@ -261,7 +261,7 @@ function initializeCharts() {
           legend: {
             position: 'right',
             labels: {
-              color: '#6b8aab',
+              color: '#1e293b',
               font: {
                 size: 13,
                 weight: '600',
@@ -274,7 +274,7 @@ function initializeCharts() {
           },
           tooltip: {
             backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#e8f4ff',
+            titleColor: '#ffffff',
             bodyColor: '#ffffff',
             padding: 12,
             titleFont: {
@@ -334,7 +334,7 @@ function initializeCharts() {
           },
           tooltip: {
             backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#e8f4ff',
+            titleColor: '#ffffff',
             bodyColor: '#ffffff',
             padding: 12,
             titleFont: {
@@ -366,10 +366,10 @@ function initializeCharts() {
                 weight: '600',
                 family: "'Inter', sans-serif"
               },
-              color: '#4a6480'
+              color: '#475569'
             },
             grid: {
-              color: 'rgba(16,185,129,0.07)',
+              color: 'rgba(0, 0, 0, 0.06)',
               drawBorder: false
             }
           },
@@ -380,7 +380,7 @@ function initializeCharts() {
                 weight: '600',
                 family: "'Inter', sans-serif"
               },
-              color: '#6b8aab'
+              color: '#1e293b'
             },
             grid: {
               display: false,
