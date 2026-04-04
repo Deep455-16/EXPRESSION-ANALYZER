@@ -1,91 +1,101 @@
 // ========================================
-// Live Analysis Page - JavaScript
+// Live Analysis — live.js
+// Integrates with Python backend via REST + WebSocket
 // ========================================
 
-let stream = null;
-let videoElement = null;
-let overlayCanvas = null;
-let overlayCtx = null;
-let isRunning = false;
-let sessionManager = null;
-let emotionChart = null;
-let analysisInterval = null;
-let sessionTimer = null;
-let frameCounter = 0;
-let fpsCounter = 0;
-let lastFpsUpdate = Date.now();
+let stream          = null;
+let videoElement    = null;
+let overlayCanvas   = null;
+let overlayCtx      = null;
+let isRunning       = false;
+let sessionManager  = null;
+let analysisInterval= null;
+let sessionTimer    = null;
+let frameCounter    = 0;
+let fpsCounter      = 0;
+let lastFpsUpdate   = Date.now();
+let backendSocket   = null;   // socket.io connection to backend
+let useBackend      = false;
+let backendUrl      = "http://localhost:5000";
 
 // ========================================
-// Initialize Page
+// Init
 // ========================================
 
-document.addEventListener('DOMContentLoaded', () => {
-  initializePage();
-  setupEventListeners();
+document.addEventListener("DOMContentLoaded", () => {
+  videoElement  = document.getElementById("webcam");
+  overlayCanvas = document.getElementById("overlay");
+  sessionManager = new SessionManager();
+  updateUI();
   loadSettings();
+  wireBackendControls();
+  wireWebRTCControls();
 });
 
-function initializePage() {
-  videoElement = document.getElementById('webcam');
-  overlayCanvas = document.getElementById('overlay');
-  sessionManager = new SessionManager();
-  
-  // Initialize emotion chart
-  const chartCanvas = document.getElementById('emotionChart');
-  if (chartCanvas) {
-    const emptyData = {};
-    EMOTIONS.forEach(e => emptyData[e] = 0);
-    emotionChart = createEmotionChart('emotionChart', emptyData);
-  }
-  
-  updateUI();
-}
-
-function setupEventListeners() {
-  document.getElementById('startCamera')?.addEventListener('click', toggleCamera);
-  document.getElementById('stopCamera')?.addEventListener('click', stopCamera);
-  document.getElementById('captureFrame')?.addEventListener('click', captureFrame);
-  document.getElementById('toggleOverlay')?.addEventListener('click', toggleOverlay);
-  document.getElementById('startCameraMain')?.addEventListener('click', toggleCamera);
-  
-  // Backend connection
-  document.getElementById('connectBackendBtn')?.addEventListener('click', connectBackend);
-  
-  document.getElementById('detectionRate')?.addEventListener('change', (e) => {
-    updateDetectionRate(e.target.value);
-  });
-  
-  document.getElementById('confidenceThreshold')?.addEventListener('input', (e) => {
-    document.getElementById('thresholdValue').textContent = e.target.value + '%';
-  });
-  
-  document.getElementById('exportSession')?.addEventListener('click', exportCurrentSession);
-  document.getElementById('clearHistory')?.addEventListener('click', clearTimeline);
-  document.getElementById('viewDashboard')?.addEventListener('click', () => {
-    window.location.href = 'dashboard.html';
-  });
-  
-  document.getElementById('closeModal')?.addEventListener('click', () => closeModal('captureModal'));
-  document.getElementById('closeModal2')?.addEventListener('click', () => closeModal('captureModal'));
-  document.getElementById('downloadCapture')?.addEventListener('click', downloadCapturedImage);
-  
-  // WebRTC controls
-  document.getElementById('toggleWebRTCMode')?.addEventListener('click', toggleWebRTCMode);
-  document.getElementById('joinRoomBtn')?.addEventListener('click', joinRoom);
-  document.getElementById('leaveRoomBtn')?.addEventListener('click', leaveRoom);
-}
-
 function loadSettings() {
-  const rate = settings.get('defaultDetectionRate');
-  const threshold = settings.get('minConfidence');
-  
-  if (document.getElementById('detectionRate')) {
-    document.getElementById('detectionRate').value = rate;
-  }
-  
-  if (document.getElementById('confidenceThreshold')) {
-    document.getElementById('confidenceThreshold').value = threshold;
-    document.getElementById('thresholdValue').textContent = threshold + '%';
+  const rate = settings.get("defaultDetectionRate");
+  const thr  = settings.get("minConfidence");
+  const rateEl = document.getElementById("detectionRate");
+  const thrEl  = document.getElementById("confidenceThreshold");
+  const thrTxt = document.getElementById("thresholdValue");
+  if (rateEl) rateEl.value = rate;
+  if (thrEl)  thrEl.value  = thr;
+  if (thrTxt) thrTxt.textContent = thr + "%";
+
+  document.getElementById("detectionRate")?.addEventListener("change", e =>
+    updateDetectionRate(e.target.value)
+  );
+  document.getElementById("confidenceThreshold")?.addEventListener("input", e => {
+    document.getElementById("thresholdValue").textContent = e.target.value + "%";
+  });
+  document.getElementById("startCamera")?.addEventListener("click", toggleCamera);
+  document.getElementById("startCameraMain")?.addEventListener("click", toggleCamera);
+  document.getElementById("stopCamera")?.addEventListener("click", stopCamera);
+  document.getElementById("captureFrame")?.addEventListener("click", captureFrame);
+  document.getElementById("toggleOverlay")?.addEventListener("click", toggleOverlay);
+  document.getElementById("exportSession")?.addEventListener("click", exportCurrentSession);
+  document.getElementById("clearHistory")?.addEventListener("click", clearTimeline);
+  document.getElementById("viewDashboard")?.addEventListener("click", () => {
+    window.location.href = "dashboard.html";
+  });
+  document.getElementById("closeModal")?.addEventListener("click", () => closeModal("captureModal"));
+  document.getElementById("closeModal2")?.addEventListener("click",() => closeModal("captureModal"));
+  document.getElementById("downloadCapture")?.addEventListener("click", downloadCapturedImage);
+}
+
+// ========================================
+// Backend Controls
+// ========================================
+
+function wireBackendControls() {
+  document.getElementById("connectBackendBtn")?.addEventListener("click", () => {
+    backendUrl = document.getElementById("backendUrlInput")?.value || "http://localhost:5000";
+    connectToBackend(backendUrl);
+  });
+  document.getElementById("analysisSource")?.addEventListener("change", e => {
+    useBackend = (e.target.value === "backend");
+  });
+}
+
+async function connectToBackend(url) {
+  const statusEl = document.getElementById("backendStatus");
+  try {
+    const res  = await fetch(`${url}/health`, { signal: AbortSignal.timeout(2500) });
+    const data = await res.json();
+    if (statusEl) { statusEl.textContent = "Online"; statusEl.style.color = "var(--success)"; }
+    const badge = document.getElementById("backendBadge");
+    if (badge) badge.style.display = "block";
+    showToast(`Backend online · YOLOv8:${data.yolo?"✓":"✗"} DeepFace:${data.deepface?"✓":"✗"}`);
+    // Connect WebSocket for streaming
+    if (typeof io !== "undefined") {
+      backendSocket = io(url, { transports: ["websocket"] });
+      backendSocket.on("result", onBackendResult);
+    }
+    return true;
+  } catch {
+    if (statusEl) { statusEl.textContent = "Offline"; statusEl.style.color = "var(--danger)"; }
+    showToast("Backend offline — using mock analysis");
+    return false;
   }
 }
 
@@ -94,579 +104,311 @@ function loadSettings() {
 // ========================================
 
 async function toggleCamera() {
-  if (isRunning) {
-    stopCamera();
-  } else {
-    await startCamera();
-  }
+  if (isRunning) stopCamera(); else await startCamera();
 }
 
 async function startCamera() {
   try {
-    // Request camera access
+    const res = settings.get("resolution") || "1280x720";
+    const [w, h] = res.split("x").map(Number);
     stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: false
+      video: { width: { ideal: w }, height: { ideal: h } }, audio: false
     });
-    
     videoElement.srcObject = stream;
-    
-    // Wait for video to be ready
-    await new Promise((resolve) => {
-      videoElement.onloadedmetadata = () => {
-        videoElement.play();
-        resolve();
-      };
-    });
-    
-    // Setup overlay canvas
-    overlayCanvas.width = videoElement.videoWidth;
+    await new Promise(resolve => { videoElement.onloadedmetadata = () => { videoElement.play(); resolve(); }; });
+
+    overlayCanvas.width  = videoElement.videoWidth;
     overlayCanvas.height = videoElement.videoHeight;
-    overlayCtx = overlayCanvas.getContext('2d');
-    
+    overlayCtx = overlayCanvas.getContext("2d");
+
     isRunning = true;
     sessionManager.start();
-    
-    // Start analysis
+    window._localStream = stream;    // expose for WebRTC module
+
     startAnalysis();
-    
-    // Start session timer
     sessionTimer = setInterval(updateSessionInfo, 1000);
-    
-    // Update UI
     updateUI();
-    updateStatus('Recording', true);
-    
-  } catch (error) {
-    console.error('Camera access error:', error);
-    alert('Could not access camera. Please ensure you have granted camera permissions.');
+    updateStatus("Recording", true);
+  } catch (err) {
+    console.error(err);
+    showToast("Camera access denied — check browser permissions");
   }
 }
 
 function stopCamera() {
-  if (stream) {
-    stream.getTracks().forEach(track => track.stop());
-    stream = null;
-  }
-  
-  if (videoElement) {
-    videoElement.srcObject = null;
-  }
-  
-  if (analysisInterval) {
-    clearInterval(analysisInterval);
-    analysisInterval = null;
-  }
-  
-  if (sessionTimer) {
-    clearInterval(sessionTimer);
-    sessionTimer = null;
-  }
-  
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null;
+  if (videoElement) videoElement.srcObject = null;
+  clearInterval(analysisInterval); analysisInterval = null;
+  clearInterval(sessionTimer);     sessionTimer = null;
   isRunning = false;
-  
-  // Save session
+  window._localStream = null;
   sessionManager.save();
-  
   updateUI();
-  updateStatus('Stopped', false);
+  updateStatus("Stopped", false);
 }
 
 function updateStatus(text, recording = false) {
-  const statusText = document.getElementById('statusText');
-  const videoStatus = document.getElementById('videoStatus');
-  
-  if (statusText) {
-    statusText.textContent = text;
-  }
-  
-  if (videoStatus) {
-    const icon = videoStatus.querySelector('i');
-    if (icon) {
-      icon.style.color = recording ? '#10b981' : '#ef4444';
-    }
-  }
+  const el   = document.getElementById("statusText");
+  const icon = document.querySelector("#videoStatus i");
+  if (el)   el.textContent = text;
+  if (icon) icon.style.color = recording ? "#10b981" : "#ef4444";
 }
 
 // ========================================
-// Analysis
+// Analysis Loop
 // ========================================
 
 function startAnalysis() {
-  const rate = document.getElementById('detectionRate')?.value || '1000';
+  const rate = document.getElementById("detectionRate")?.value || "1000";
   updateDetectionRate(rate);
 }
 
 function updateDetectionRate(rate) {
-  if (analysisInterval) {
-    clearInterval(analysisInterval);
-  }
-  
+  clearInterval(analysisInterval); analysisInterval = null;
   if (!isRunning) return;
-  
-  if (rate === 'realtime') {
-    // Request animation frame for real-time
-    function analyzeFrame() {
-      if (isRunning) {
-        performAnalysis();
-        requestAnimationFrame(analyzeFrame);
-      }
-    }
-    analyzeFrame();
+  if (rate === "realtime") {
+    (function loop() { if (isRunning) { performAnalysis(); requestAnimationFrame(loop); } })();
   } else {
-    // Interval-based
-    const interval = parseInt(rate);
-    analysisInterval = setInterval(() => {
-      performAnalysis();
-    }, interval);
+    analysisInterval = setInterval(performAnalysis, parseInt(rate));
   }
 }
 
 async function performAnalysis() {
   if (!isRunning || !videoElement) return;
-  
   try {
     const canvas = captureVideoFrame(videoElement, videoElement.videoWidth, videoElement.videoHeight);
-    const imageData = canvas.toDataURL('image/jpeg', 0.85);
-    
-    const source = document.getElementById('analysisSource')?.value || 'mock';
     let result;
-    
-    if (source === 'backend' && BackendAPI.connected) {
-      const start = performance.now();
-      result = await BackendAPI.analyzeFrame(imageData);
-      const latency = Math.round(performance.now() - start);
-      const badge = document.getElementById('backendBadge');
-      const latencyEl = document.getElementById('latencyMs');
-      if (badge) badge.style.display = 'block';
-      if (latencyEl) latencyEl.textContent = latency;
-      
-      if (!result || result.error) {
-        result = await analyzeExpression(null);
-      }
+
+    const src = document.getElementById("analysisSource")?.value || "mock";
+
+    if (src === "backend") {
+      result = await analyzeViaREST(canvas);
     } else {
-      result = await analyzeExpression(null);
+      const imgData = canvas.getContext("2d").getImageData(0,0,canvas.width,canvas.height);
+      result = await analyzeExpression(imgData);
     }
-    
-    updateAnalysisDisplay(result);
+
+    displayResult(result);
     sessionManager.addResult(result);
     addToTimeline(result);
     frameCounter++;
     fpsCounter++;
-    
     const now = Date.now();
     if (now - lastFpsUpdate >= 1000) {
-      const fps = document.getElementById('fps');
-      if (fps) fps.textContent = fpsCounter;
-      fpsCounter = 0;
-      lastFpsUpdate = now;
+      const fpsEl = document.getElementById("fps");
+      if (fpsEl) fpsEl.textContent = fpsCounter;
+      fpsCounter = 0; lastFpsUpdate = now;
     }
-    
-    if (document.getElementById('showOverlay')?.checked && result.face_box) {
-      drawOverlayWithBox(result);
-    } else if (document.getElementById('showOverlay')?.checked) {
-      drawOverlay(result);
+    if (document.getElementById("showOverlay")?.checked) drawOverlay(result);
+  } catch (e) { console.error("analysis error", e); }
+}
+
+// ─── REST call to Python backend ────────────────────────────────
+
+async function analyzeViaREST(canvas) {
+  const frame = canvas.toDataURL("image/jpeg", 0.75).split(",")[1];
+  const t0    = performance.now();
+  try {
+    const res   = await fetch(`${backendUrl}/api/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ frame, participant_id: "local", method: "yolo" }),
+      signal: AbortSignal.timeout(3000),
+    });
+    const data  = await res.json();
+    const ms    = Math.round(performance.now()-t0);
+    const latEl = document.getElementById("latencyMs");
+    if (latEl) latEl.textContent = ms;
+    const badge = document.getElementById("backendBadge");
+    if (badge) badge.style.display = "block";
+
+    // Map backend response → frontend format
+    if (data.face_emotions?.length) {
+      const fe = data.face_emotions[0];
+      const emotions = {};
+      EMOTIONS.forEach(e => { emotions[e] = Math.round((fe.scores[e]||0)*100); });
+      return { emotions, dominant: fe.emotion, confidence: Math.round(fe.confidence*100), timestamp: new Date().toISOString() };
     }
-    
-  } catch (error) {
-    console.error('Analysis error:', error);
+    return await analyzeExpression(null);
+  } catch {
+    return await analyzeExpression(null);
   }
 }
 
-function updateAnalysisDisplay(result) {
-  // Update dominant emotion
-  const emotionIcon = document.getElementById('emotionIcon');
-  const emotionName = document.getElementById('emotionName');
-  const emotionConfidence = document.getElementById('emotionConfidence');
-  
-  if (emotionIcon) {
-    const iconClass = EMOTION_ICONS[result.dominant] || 'fa-meh';
-    emotionIcon.innerHTML = `<i class="fas ${iconClass}"></i>`;
-  }
-  
-  if (emotionName) {
-    emotionName.textContent = result.dominant.charAt(0).toUpperCase() + result.dominant.slice(1);
-  }
-  
-  if (emotionConfidence) {
-    emotionConfidence.textContent = result.confidence + '%';
-  }
-  
-  // Update emotion bars
+// ─── WebSocket result (sent when backend pushes) ─────────────────
+
+function onBackendResult(data) {
+  if (!data.face_emotions?.length) return;
+  const fe = data.face_emotions[0];
+  const emotions = {};
+  EMOTIONS.forEach(e => { emotions[e] = Math.round((fe.scores[e]||0)*100); });
+  const result = { emotions, dominant: fe.emotion, confidence: Math.round(fe.confidence*100), timestamp: new Date().toISOString() };
+  displayResult(result);
+  sessionManager.addResult(result);
+  addToTimeline(result);
+}
+
+// ========================================
+// Display
+// ========================================
+
+function displayResult(result) {
+  const iconEl = document.getElementById("emotionIcon");
+  const nameEl = document.getElementById("emotionName");
+  const confEl = document.getElementById("emotionConfidence");
+  if (iconEl) iconEl.innerHTML = `<i class="fas ${EMOTION_ICONS[result.dominant]||"fa-meh"}"></i>`;
+  if (nameEl) nameEl.textContent = result.dominant.charAt(0).toUpperCase()+result.dominant.slice(1);
+  if (confEl) confEl.textContent = result.confidence + "%";
   updateEmotionBars(result.emotions);
-  
-  // Update chart
-  if (emotionChart) {
-    emotionChart.data.datasets[0].data = EMOTIONS.map(e => result.emotions[e] || 0);
-    emotionChart.update('none');
-  }
 }
 
 function updateEmotionBars(emotions) {
-  const barsContainer = document.getElementById('emotionBars');
-  if (!barsContainer) return;
-  
-  // Sort emotions by value
-  const sorted = Object.entries(emotions).sort((a, b) => b[1] - a[1]);
-  
-  barsContainer.innerHTML = sorted.map(([emotion, value]) => `
+  const bars = document.getElementById("emotionBars");
+  if (!bars) return;
+  const sorted = Object.entries(emotions).sort((a,b)=>b[1]-a[1]);
+  const COLORS = { happy:"#10b981",sad:"#60a5fa",angry:"#f43f5e",surprised:"#f59e0b",fearful:"#a78bfa",disgusted:"#f472b6",neutral:"#94a3b8" };
+  bars.innerHTML = sorted.map(([em,val]) => `
     <div class="emotion-bar">
-      <span style="text-transform: capitalize;">${emotion}</span>
-      <span style="color: var(--accent-primary);">${value}%</span>
-    </div>
-  `).join('');
+      <span style="text-transform:capitalize">${em}</span>
+      <div style="display:flex;align-items:center;gap:8px;flex:1;justify-content:flex-end">
+        <div style="width:70px;height:4px;border-radius:2px;background:rgba(0,0,0,0.08);overflow:hidden">
+          <div style="width:${val}%;height:100%;background:${COLORS[em]||"#94a3b8"};border-radius:2px"></div>
+        </div>
+        <span style="color:var(--primary);font-size:13px;min-width:34px;text-align:right">${val}%</span>
+      </div>
+    </div>`).join("");
 }
 
 function drawOverlay(result) {
   if (!overlayCtx) return;
-  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  const w = overlayCanvas.width;
-  const h = overlayCanvas.height;
-  const boxWidth = w * 0.4;
-  const boxHeight = h * 0.5;
-  const x = (w - boxWidth) / 2;
-  const y = (h - boxHeight) / 2;
-  overlayCtx.strokeStyle = '#6ee7b7';
-  overlayCtx.lineWidth = 3;
-  overlayCtx.strokeRect(x, y, boxWidth, boxHeight);
-  overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  overlayCtx.fillRect(x, y - 30, 200, 30);
-  overlayCtx.fillStyle = '#6ee7b7';
-  overlayCtx.font = 'bold 16px Inter';
-  overlayCtx.fillText(`${result.dominant} (${result.confidence}%)`, x + 10, y - 10);
-}
-
-function drawOverlayWithBox(result) {
-  if (!overlayCtx || !result.face_box) return;
-  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-  const { x, y, w, h } = result.face_box;
-  const scaleX = overlayCanvas.width / videoElement.videoWidth;
-  const scaleY = overlayCanvas.height / videoElement.videoHeight;
-  overlayCtx.strokeStyle = '#6ee7b7';
-  overlayCtx.lineWidth = 3;
-  overlayCtx.strokeRect(x * scaleX, y * scaleY, w * scaleX, h * scaleY);
-  overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-  overlayCtx.fillRect(x * scaleX, y * scaleY - 30, 200, 30);
-  overlayCtx.fillStyle = '#6ee7b7';
-  overlayCtx.font = 'bold 16px Inter';
-  const label = result.concentration ? `${result.dominant} | ${result.concentration.level}%` : `${result.dominant} (${result.confidence}%)`;
-  overlayCtx.fillText(label, x * scaleX + 10, y * scaleY - 10);
+  overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+  const w=overlayCanvas.width, h=overlayCanvas.height;
+  const bw=w*0.38, bh=h*0.52, bx=(w-bw)/2, by=(h-bh)/2, cs=16;
+  overlayCtx.strokeStyle="#10b981"; overlayCtx.lineWidth=2.5;
+  [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(([cx,cy,dx,dy])=>{
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(cx,cy+dy*cs); overlayCtx.lineTo(cx,cy); overlayCtx.lineTo(cx+dx*cs,cy);
+    overlayCtx.stroke();
+  });
+  const lbl = `${result.dominant.toUpperCase()}  ${result.confidence}%`;
+  overlayCtx.fillStyle="rgba(0,0,0,0.65)";
+  overlayCtx.fillRect(bx, by-28, lbl.length*9+12, 26);
+  overlayCtx.fillStyle="#10b981"; overlayCtx.font="bold 12px monospace";
+  overlayCtx.fillText(lbl, bx+6, by-10);
 }
 
 function toggleOverlay() {
-  if (!overlayCtx) return;
-  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  if (overlayCtx) overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
 }
 
 // ========================================
-// Session Info
+// Session + Timeline
 // ========================================
 
 function updateSessionInfo() {
-  const duration = sessionManager.getDuration();
-  const durationEl = document.getElementById('sessionDuration');
-  const frameCountEl = document.getElementById('frameCount');
-  
-  if (durationEl) {
-    durationEl.textContent = formatDuration(duration);
-  }
-  
-  if (frameCountEl) {
-    frameCountEl.textContent = frameCounter;
-  }
+  const dur   = document.getElementById("sessionDuration");
+  const frm   = document.getElementById("frameCount");
+  if (dur) dur.textContent = formatDuration(sessionManager.getDuration());
+  if (frm) frm.textContent = frameCounter;
 }
 
-// ========================================
-// Timeline
-// ========================================
-
 function addToTimeline(result) {
-  const timeline = document.getElementById('timeline');
-  if (!timeline) return;
-  
-  // Remove empty state
-  const empty = timeline.querySelector('.timeline-empty');
-  if (empty) {
-    empty.remove();
-  }
-  
-  // Create timeline item
-  const item = document.createElement('div');
-  item.className = 'timeline-item';
+  const tl = document.getElementById("timeline");
+  if (!tl) return;
+  tl.querySelector(".timeline-empty")?.remove();
+  const item = document.createElement("div");
+  item.className = "timeline-item";
   item.innerHTML = `
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display:flex;justify-content:space-between;align-items:center">
       <div>
-        <strong style="text-transform: capitalize;">${result.dominant}</strong>
-        <div style="font-size: 0.75rem; color: var(--text-secondary);">
-          ${new Date().toLocaleTimeString()}
-        </div>
+        <strong style="text-transform:capitalize">${result.dominant}</strong>
+        <div style="font-size:0.75rem;color:var(--text-secondary)">${new Date().toLocaleTimeString()}</div>
       </div>
-      <div style="font-weight: 700; color: var(--accent-primary);">
-        ${result.confidence}%
-      </div>
-    </div>
-  `;
-  
-  timeline.insertBefore(item, timeline.firstChild);
-  
-  // Keep only last 20 items
-  while (timeline.children.length > 20) {
-    timeline.removeChild(timeline.lastChild);
-  }
+      <div style="font-weight:700;color:var(--primary)">${result.confidence}%</div>
+    </div>`;
+  tl.insertBefore(item, tl.firstChild);
+  while (tl.children.length>20) tl.removeChild(tl.lastChild);
 }
 
 function clearTimeline() {
-  const timeline = document.getElementById('timeline');
-  if (!timeline) return;
-  
-  timeline.innerHTML = `
-    <div class="timeline-empty">
-      <i class="fas fa-info-circle"></i>
-      <p>Start analysis to see timeline</p>
-    </div>
-  `;
-  
-  frameCounter = 0;
+  const tl = document.getElementById("timeline");
+  if (tl) tl.innerHTML = `<div class="timeline-empty"><i class="fas fa-info-circle"></i><p>Start analysis to see timeline</p></div>`;
+  frameCounter   = 0;
   sessionManager = new SessionManager();
 }
 
 // ========================================
-// Capture
+// Capture / Export
 // ========================================
 
 let capturedImageData = null;
-
 function captureFrame() {
-  if (!isRunning || !videoElement) return;
-  
-  const canvas = captureVideoFrame(videoElement, videoElement.videoWidth, videoElement.videoHeight);
-  capturedImageData = canvasToDataURL(canvas);
-  
-  // Show in modal
-  const img = document.getElementById('capturedImage');
-  if (img) {
-    img.src = capturedImageData;
-  }
-  
-  // Show capture info
-  const info = document.getElementById('captureInfo');
+  if (!isRunning||!videoElement) return;
+  const c = captureVideoFrame(videoElement, videoElement.videoWidth, videoElement.videoHeight);
+  capturedImageData = canvasToDataURL(c);
+  const img = document.getElementById("capturedImage");
+  if (img) img.src = capturedImageData;
+  const info = document.getElementById("captureInfo");
   if (info) {
-    const stats = sessionManager.getStats();
-    info.innerHTML = `
-      <div style="margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.02); border-radius: 8px;">
-        <div style="margin-bottom: 0.5rem;">
-          <strong>Dominant Emotion:</strong> <span style="text-transform: capitalize;">${stats.dominant}</span>
-        </div>
-        <div style="margin-bottom: 0.5rem;">
-          <strong>Avg Confidence:</strong> ${stats.avgConfidence}%
-        </div>
-        <div>
-          <strong>Captured:</strong> ${new Date().toLocaleString()}
-        </div>
-      </div>
-    `;
+    const s = sessionManager.getStats();
+    info.innerHTML = `<div style="margin-top:1rem;padding:1rem;background:rgba(0,0,0,0.04);border-radius:8px">
+      <div><strong>Dominant:</strong> ${s.dominant}</div>
+      <div><strong>Avg Confidence:</strong> ${s.avgConfidence}%</div>
+      <div><strong>Captured:</strong> ${new Date().toLocaleString()}</div></div>`;
   }
-  
-  openModal('captureModal');
+  openModal("captureModal");
 }
 
 function downloadCapturedImage() {
   if (!capturedImageData) return;
-  
-  const a = document.createElement('a');
-  a.href = capturedImageData;
-  a.download = `capture_${Date.now()}.jpg`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+  const a = document.createElement("a");
+  a.href = capturedImageData; a.download = `capture_${Date.now()}.jpg`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
-
-// ========================================
-// Export
-// ========================================
 
 function exportCurrentSession() {
   const data = sessionManager.export();
-  
-  if (data.data.length === 0) {
-    alert('No data to export. Start analysis first.');
-    return;
-  }
-  
-  const format = settings.get('exportFormat') || 'json';
-  const timestamp = settings.get('includeTimestamp') ? '_' + Date.now() : '';
-  
-  if (format === 'json') {
-    exportToJSON(data, `session${timestamp}.json`);
-  } else {
-    // Convert to CSV-friendly format
-    const csvData = data.data.map(item => ({
-      timestamp: item.timestamp,
-      dominant: item.dominant,
-      confidence: item.confidence,
-      sessionTime: item.sessionTime,
-      ...item.emotions
-    }));
-    exportToCSV(csvData, `session${timestamp}.csv`);
-  }
+  if (!data.data.length) { showToast("No data to export"); return; }
+  const fmt = settings.get("exportFormat")||"json";
+  const ts  = settings.get("includeTimestamp")?"_"+Date.now():"";
+  if (fmt==="json") exportToJSON(data,`session${ts}.json`);
+  else exportToCSV(data.data.map(d=>({timestamp:d.timestamp,dominant:d.dominant,confidence:d.confidence,...d.emotions})),`session${ts}.csv`);
+  showToast("Session exported");
 }
 
 // ========================================
-// UI Updates
+// UI
 // ========================================
 
 function updateUI() {
-  const startBtn = document.getElementById('startCamera');
-  const stopBtn = document.getElementById('stopCamera');
-  const captureBtn = document.getElementById('captureFrame');
-  const toggleBtn = document.getElementById('toggleOverlay');
-  
-  if (startBtn) {
-    startBtn.innerHTML = isRunning ? '<i class="fas fa-pause"></i> Pause' : '<i class="fas fa-play"></i> Start Camera';
-    startBtn.disabled = false;
-  }
-  if (stopBtn) stopBtn.disabled = !isRunning;
-  if (captureBtn) captureBtn.disabled = !isRunning;
-  if (toggleBtn) toggleBtn.disabled = !isRunning;
+  const s = document.getElementById("startCamera");
+  const t = document.getElementById("stopCamera");
+  const c = document.getElementById("captureFrame");
+  if (s) s.innerHTML = isRunning ? '<i class="fas fa-pause"></i> Pause' : '<i class="fas fa-play"></i> Start Camera';
+  if (t) t.disabled = !isRunning;
+  if (c) c.disabled = !isRunning;
 }
 
 // ========================================
-// Backend Connection
+// WebRTC Mode wiring (minimal — real logic in webrtc.js)
 // ========================================
 
-async function connectBackend() {
-  const urlInput = document.getElementById('backendUrlInput');
-  if (urlInput) BackendAPI.baseUrl = urlInput.value.replace(/\/$/, '');
-  
-  const statusEl = document.getElementById('backendStatus');
-  const result = await BackendAPI.checkHealth();
-  
-  if (result && BackendAPI.connected) {
-    if (statusEl) {
-      statusEl.textContent = 'Online';
-      statusEl.style.color = 'var(--success)';
+function wireWebRTCControls() {
+  const toggleBtn = document.getElementById("toggleWebRTCMode");
+  const bar       = document.getElementById("webrtcStatusBar");
+  const section   = document.getElementById("webrtcParticipantsSection");
+  let on = false;
+  toggleBtn?.addEventListener("click", () => {
+    on = !on;
+    if (bar)     bar.style.display     = on ? "flex" : "none";
+    if (section) section.style.display = on ? "block": "none";
+    if (toggleBtn) {
+      toggleBtn.innerHTML = on
+        ? '<i class="fas fa-users"></i> WebRTC: ON'
+        : '<i class="fas fa-users"></i> WebRTC Mode';
+      toggleBtn.className = on ? "btn btn-primary" : "btn btn-secondary";
     }
-    showToast(`Backend connected: ${result.model}`);
-  } else {
-    if (statusEl) {
-      statusEl.textContent = 'Offline';
-      statusEl.style.color = 'var(--danger)';
-    }
-    showToast('Backend not reachable. Using mock mode.', 4000);
-  }
-}
-
-// ========================================
-// WebRTC Room Management
-// ========================================
-
-let webrtcModeActive = false;
-let webrtcPollInterval = null;
-
-function toggleWebRTCMode() {
-  webrtcModeActive = !webrtcModeActive;
-  const statusBar = document.getElementById('webrtcStatusBar');
-  const participantsSection = document.getElementById('webrtcParticipantsSection');
-  const btn = document.getElementById('toggleWebRTCMode');
-  
-  if (webrtcModeActive) {
-    if (statusBar) statusBar.style.display = 'flex';
-    if (participantsSection) participantsSection.style.display = 'block';
-    if (btn) {
-      btn.innerHTML = '<i class="fas fa-users-slash"></i> Exit WebRTC';
-      btn.classList.remove('btn-secondary');
-      btn.classList.add('btn-danger');
-    }
-    updateRTCStatus('disconnected', 'Not connected');
-    showToast('WebRTC Mode enabled. Join a room to start.');
-  } else {
-    if (statusBar) statusBar.style.display = 'none';
-    if (participantsSection) participantsSection.style.display = 'none';
-    if (btn) {
-      btn.innerHTML = '<i class="fas fa-users"></i> WebRTC Mode';
-      btn.classList.remove('btn-danger');
-      btn.classList.add('btn-secondary');
-    }
-    if (webrtcPollInterval) clearInterval(webrtcPollInterval);
-    showToast('WebRTC Mode disabled.');
-  }
-}
-
-async function joinRoom() {
-  const roomId = document.getElementById('roomIdInput')?.value || 'meet-room-001';
-  const result = await BackendAPI.joinRoom(roomId);
-  
-  if (result) {
-    updateRTCStatus('connected', `Connected to ${roomId}`);
-    document.getElementById('joinRoomBtn').style.display = 'none';
-    document.getElementById('leaveRoomBtn').style.display = 'inline-flex';
-    showToast(`Joined room: ${roomId}`);
-    
-    // Start polling for participant updates
-    if (webrtcPollInterval) clearInterval(webrtcPollInterval);
-    webrtcPollInterval = setInterval(() => updateParticipantDisplay(roomId), 2000);
-    updateParticipantDisplay(roomId);
-  } else {
-    showToast('Failed to join room. Check backend connection.', 4000);
-  }
-}
-
-async function leaveRoom() {
-  const roomId = document.getElementById('roomIdInput')?.value || 'meet-room-001';
-  await BackendAPI.leaveRoom(roomId);
-  
-  updateRTCStatus('disconnected', 'Not connected');
-  document.getElementById('joinRoomBtn').style.display = 'inline-flex';
-  document.getElementById('leaveRoomBtn').style.display = 'none';
-  
-  if (webrtcPollInterval) clearInterval(webrtcPollInterval);
-  const grid = document.getElementById('remoteParticipantsGrid');
-  if (grid) grid.innerHTML = '';
-  
-  showToast('Left room.');
-}
-
-function updateRTCStatus(state, text) {
-  const dot = document.getElementById('rtcDot');
-  const statusText = document.getElementById('rtcStatusText');
-  if (dot) {
-    dot.className = `rtc-dot ${state}`;
-  }
-  if (statusText) {
-    statusText.textContent = text;
-  }
-}
-
-async function updateParticipantDisplay(roomId) {
-  const summary = await BackendAPI.getRoomSummary(roomId);
-  if (!summary) return;
-  
-  const grid = document.getElementById('remoteParticipantsGrid');
-  const countEl = document.getElementById('participantCount');
-  if (countEl) countEl.textContent = summary.participant_count;
-  
-  if (!grid) return;
-  
-  grid.innerHTML = Object.entries(summary.participants || {}).map(([pid, data]) => {
-    const conc = data.concentration || 0;
-    const level = conc >= 80 ? 'Highly Focused' : conc >= 60 ? 'Engaged' : conc >= 40 ? 'Moderate' : 'Distracted';
-    const color = conc >= 60 ? 'var(--success)' : conc >= 40 ? 'var(--warning)' : 'var(--danger)';
-    const shortId = pid.slice(0, 8);
-    
-    return `
-      <div class="participant-card" style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:12px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-          <span style="font-weight:600;font-size:12px;">${shortId}</span>
-          <span style="font-size:11px;color:${color};font-weight:700;">${level}</span>
-        </div>
-        <div style="background:var(--background);border-radius:4px;height:6px;overflow:hidden;">
-          <div style="width:${conc}%;height:100%;background:${color};border-radius:4px;transition:width 0.5s;"></div>
-        </div>
-        <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;text-align:right;">${conc}% concentration</div>
-      </div>
-    `;
-  }).join('');
+    if (on) showToast("WebRTC mode enabled");
+  });
 }

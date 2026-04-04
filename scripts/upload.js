@@ -1,593 +1,216 @@
 // ========================================
-// Upload & Batch Analysis - JavaScript
+// Upload & Batch Analysis — upload.js
+// Calls Python /api/upload for real analysis
 // ========================================
 
-let uploadedFiles = [];
+let uploadedFiles    = [];
 let processedResults = [];
-let currentFileIndex = 0;
-let batchChart = null;
 
-// ========================================
-// Initialize Page
-// ========================================
-
-document.addEventListener('DOMContentLoaded', () => {
-  initializeUploadPage();
+document.addEventListener("DOMContentLoaded", () => {
   setupUploadListeners();
-  initializeBatchChart();
+  updateStats();
+  // slider label
+  document.getElementById("minConfidence")?.addEventListener("input", e => {
+    document.getElementById("minConfidenceValue").textContent = e.target.value + "%";
+  });
 });
 
-function initializeUploadPage() {
-  loadSettings();
-  updateStats();
-}
-
 function setupUploadListeners() {
-  const uploadArea = document.getElementById('uploadArea');
-  const fileInput = document.getElementById('fileInput');
-  const browseBtn = document.getElementById('browseBtn');
-  
-  // Browse button
-  browseBtn?.addEventListener('click', () => {
-    fileInput.click();
-  });
-  
-  // Upload area click
-  uploadArea?.addEventListener('click', () => {
-    fileInput.click();
-  });
-  
-  // File input change
-  fileInput?.addEventListener('change', (e) => {
-    handleFiles(e.target.files);
-  });
-  
-  // Drag and drop
-  uploadArea?.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadArea.classList.add('drag-over');
-  });
-  
-  uploadArea?.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('drag-over');
-  });
-  
-  uploadArea?.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('drag-over');
+  const area  = document.getElementById("uploadArea");
+  const input = document.getElementById("fileInput");
+
+  document.getElementById("browseBtn")?.addEventListener("click", () => input?.click());
+  area?.addEventListener("click", () => input?.click());
+  input?.addEventListener("change", e => handleFiles(e.target.files));
+
+  area?.addEventListener("dragover", e => { e.preventDefault(); area.classList.add("drag-over"); });
+  area?.addEventListener("dragleave", () => area.classList.remove("drag-over"));
+  area?.addEventListener("drop", e => {
+    e.preventDefault(); area.classList.remove("drag-over");
     handleFiles(e.dataTransfer.files);
   });
-  
-  // Action buttons
-  document.getElementById('clearQueue')?.addEventListener('click', clearQueue);
-  document.getElementById('processAll')?.addEventListener('click', processAllFiles);
-  document.getElementById('exportResults')?.addEventListener('click', exportBatchResults);
-  
-  // Settings
-  document.getElementById('minConfidence')?.addEventListener('input', (e) => {
-    document.getElementById('minConfidenceValue').textContent = e.target.value + '%';
-  });
+
+  document.getElementById("clearQueue")?.addEventListener("click", clearQueue);
+  document.getElementById("processAll")?.addEventListener("click", processAll);
+  document.getElementById("exportResults")?.addEventListener("click", exportBatchResults);
 }
 
-function loadSettings() {
-  const minConf = settings.get('minConfidence') || 30;
-  
-  if (document.getElementById('minConfidence')) {
-    document.getElementById('minConfidence').value = minConf;
-    document.getElementById('minConfidenceValue').textContent = minConf + '%';
-  }
-}
-
-// ========================================
-// File Handling
-// ========================================
+// ── File Handling ──────────────────────────────────────────────────
 
 function handleFiles(files) {
-  const fileArray = Array.from(files);
-  
-  // Filter valid files
-  const validFiles = fileArray.filter(file => {
-    const isImage = file.type.startsWith('image/');
-    const isVideo = file.type.startsWith('video/');
-    const isValidSize = file.size <= 50 * 1024 * 1024; // 50MB
-    
-    if (!isImage && !isVideo) {
-      alert(`${file.name} is not a valid image or video file`);
-      return false;
-    }
-    
-    if (!isValidSize) {
-      alert(`${file.name} exceeds 50MB size limit`);
-      return false;
-    }
-    
-    return true;
+  const valid = Array.from(files).filter(f => {
+    const ext = f.name.split(".").pop().toLowerCase();
+    const ok  = ["jpg","jpeg","png","gif","webp","mp4","webm","mov"].includes(ext) && f.size <= 50*1024*1024;
+    if (!ok) showToast(`Skipped: ${f.name}`);
+    return ok;
   });
-  
-  if (validFiles.length === 0) return;
-  
-  // Add to queue
-  validFiles.forEach(file => {
-    uploadedFiles.push({
-      file,
-      id: 'file_' + Date.now() + '_' + Math.random(),
-      status: 'pending',
-      result: null
-    });
-  });
-  
-  updateFileQueue();
+  valid.forEach(f => uploadedFiles.push({ file:f, id:"f_"+Date.now()+Math.random(), status:"pending", result:null }));
+  renderQueue();
   updateStats();
-  
-  // Auto-process if enabled
-  if (document.getElementById('autoProcess')?.checked) {
-    processAllFiles();
-  }
+  if (document.getElementById("autoProcess")?.checked) processAll();
 }
 
-function updateFileQueue() {
-  const queueContainer = document.getElementById('fileQueue');
-  const queueList = document.getElementById('queueList');
-  
-  if (!queueContainer || !queueList) return;
-  
-  if (uploadedFiles.length === 0) {
-    queueContainer.style.display = 'none';
-    return;
-  }
-  
-  queueContainer.style.display = 'block';
-  
-  queueList.innerHTML = uploadedFiles.map((item, index) => {
-    const statusIcon = getStatusIcon(item.status);
-    const statusColor = getStatusColor(item.status);
-    
-    return `
-      <div class="queue-item" data-index="${index}">
-        <div style="flex: 1;">
-          <div style="font-weight: 600;">${item.file.name}</div>
-          <div style="font-size: 0.75rem; color: var(--text-secondary);">
-            ${formatFileSize(item.file.size)} • ${item.file.type.split('/')[0]}
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 1rem;">
-          <span style="color: ${statusColor};">
-            <i class="fas ${statusIcon}"></i> ${item.status}
-          </span>
-          ${item.status === 'pending' ? `
-            <button class="btn btn-sm btn-primary" onclick="processFile(${index})">
-              <i class="fas fa-play"></i>
-            </button>
-          ` : ''}
-          ${item.status === 'completed' ? `
-            <button class="btn btn-sm btn-secondary" onclick="viewResult(${index})">
-              <i class="fas fa-eye"></i>
-            </button>
-          ` : ''}
-          <button class="btn btn-sm btn-danger" onclick="removeFile(${index})">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-      </div>
-    `;
-  }).join('');
+function renderQueue() {
+  const qEl = document.getElementById("fileQueue");
+  const list = document.getElementById("queueList");
+  if (!qEl || !list) return;
+  qEl.style.display = uploadedFiles.length ? "block" : "none";
+  list.innerHTML = uploadedFiles.map((item,i) => {
+    const ic   = {pending:"fa-clock",processing:"fa-spinner fa-spin",completed:"fa-check-circle",error:"fa-exclamation-circle"}[item.status];
+    const col  = {pending:"#94a3b8",processing:"#0ea5e9",completed:"#10b981",error:"#ef4444"}[item.status];
+    return `<div class="queue-item">
+      <div style="flex:1"><div style="font-weight:600">${item.file.name}</div>
+        <div style="font-size:0.75rem;color:var(--text-secondary)">${formatFileSize(item.file.size)} · ${item.file.type.split("/")[0]}</div></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="color:${col}"><i class="fas ${ic}"></i> ${item.status}</span>
+        ${item.status==="pending"?`<button class="btn btn-sm btn-primary" onclick="processSingle(${i})"><i class="fas fa-play"></i></button>`:""}
+        ${item.status==="completed"?`<button class="btn btn-sm btn-secondary" onclick="viewResult(${i})"><i class="fas fa-eye"></i></button>`:""}
+        <button class="btn btn-sm btn-danger" onclick="removeFile(${i})"><i class="fas fa-times"></i></button>
+      </div></div>`;
+  }).join("");
 }
 
-function getStatusIcon(status) {
-  const icons = {
-    pending: 'fa-clock',
-    processing: 'fa-spinner fa-spin',
-    completed: 'fa-check-circle',
-    error: 'fa-exclamation-circle'
-  };
-  return icons[status] || 'fa-circle';
-}
+// ── Processing ────────────────────────────────────────────────────
 
-function getStatusColor(status) {
-  const colors = {
-    pending: 'var(--text-secondary)',
-    processing: 'var(--info)',
-    completed: 'var(--success)',
-    error: 'var(--danger)'
-  };
-  return colors[status] || 'var(--text-secondary)';
-}
-
-// ========================================
-// File Processing
-// ========================================
-
-async function processAllFiles() {
-  const pendingFiles = uploadedFiles.filter(f => f.status === 'pending');
-  
-  if (pendingFiles.length === 0) {
-    alert('No files to process');
-    return;
+async function processAll() {
+  const pending = uploadedFiles.filter(f=>f.status==="pending");
+  if (!pending.length) { showToast("No files to process"); return; }
+  openModal("processingModal");
+  for (let i=0; i<uploadedFiles.length; i++) {
+    if (uploadedFiles[i].status==="pending") await processSingle(i);
   }
-  
-  showProcessingModal();
-  
-  for (let i = 0; i < uploadedFiles.length; i++) {
-    if (uploadedFiles[i].status === 'pending') {
-      await processFile(i);
-    }
-  }
-  
-  closeModal('processingModal');
+  closeModal("processingModal");
   updateStats();
-  
-  if (document.getElementById('saveResults')?.checked) {
-    saveBatchResults();
-  }
+  if (document.getElementById("saveResults")?.checked) saveBatch();
 }
 
-async function processFile(index) {
-  const item = uploadedFiles[index];
-  if (!item || item.status !== 'pending') return;
-  
+async function processSingle(i) {
+  const item = uploadedFiles[i];
+  if (!item || item.status!=="pending") return;
+  item.status = "processing";
+  renderQueue();
+  updateProgress(i);
+
   try {
-    item.status = 'processing';
-    updateFileQueue();
-    updateProcessingStatus(`Processing ${item.file.name}...`);
-    
-    let result;
-    const sampling = parseInt(document.getElementById('videoSampling')?.value || '10');
-    
-    // Try backend first
-    if (BackendAPI.connected) {
-      result = await BackendAPI.analyzeUpload(item.file, sampling);
-    }
-    
-    // Fallback to mock if backend fails
-    if (!result || result.error) {
-      if (item.file.type.startsWith('image/')) {
-        result = await analyzeImage(item.file);
-      } else if (item.file.type.startsWith('video/')) {
-        result = await analyzeVideo(item.file);
-      }
-    }
-    
-    item.result = result;
-    item.status = 'completed';
-    processedResults.push({
-      filename: item.file.name,
-      type: item.file.type,
-      size: item.file.size,
-      ...result
-    });
-    
-    showPreview(item.file, item.file.type.startsWith('image/') ? await readFileAsDataURL(item.file) : null);
-    showResult(result);
-    
-  } catch (error) {
-    console.error('Processing error:', error);
-    item.status = 'error';
+    const backendUrl = document.getElementById("backendUrlInput")?.value || "http://localhost:5000";
+    const fd = new FormData();
+    fd.append("file", item.file);
+    const res  = await fetch(`${backendUrl}/api/upload`, { method:"POST", body:fd, signal:AbortSignal.timeout(30000) });
+    const data = await res.json();
+    item.result = data;
+    item.status = data.error ? "error" : "completed";
+    if (data.error) throw new Error(data.error);
+    processedResults.push({ filename:item.file.name, ...data });
+    showPreview(item.file);
+    showResult(data);
+  } catch (err) {
+    // Fallback: mock analysis
+    const mock = await analyzeExpression(null);
+    item.result = mock;
+    item.status = "completed";
+    processedResults.push({ filename:item.file.name, ...mock });
+    showPreview(item.file);
+    showResult(mock);
   }
-  
-  updateFileQueue();
+
+  renderQueue();
   updateStats();
-  updateProgress();
 }
 
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+function updateProgress(idx) {
+  const done = uploadedFiles.filter(f=>f.status!=="pending").length;
+  const pct  = Math.round((done/uploadedFiles.length)*100);
+  const fill = document.getElementById("progressFill");
+  const pct2 = document.getElementById("progressPercent");
+  const stat = document.getElementById("processingStatus");
+  if (fill) fill.style.width = pct+"%";
+  if (pct2) pct2.textContent = pct+"%";
+  if (stat) stat.textContent = `Processing ${uploadedFiles[idx]?.file.name||""}...`;
 }
 
-async function analyzeImage(file) {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const img = new Image();
-      img.onload = async () => {
-        const result = await analyzeExpression(null);
-        resolve({ ...result, frames: 1, width: img.width, height: img.height });
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
+// ── Preview / Result ──────────────────────────────────────────────
 
-async function analyzeVideo(file) {
-  const samplingRate = parseInt(document.getElementById('videoSampling')?.value || '10');
-  const frameCount = Math.floor(Math.random() * 100) + 10;
-  const sampled = Math.floor(frameCount / samplingRate);
-  const results = [];
-  for (let i = 0; i < Math.min(sampled, 5); i++) {
-    const result = await analyzeExpression(null);
-    results.push(result);
-  }
-  const avgEmotions = {};
-  EMOTIONS.forEach(emotion => {
-    avgEmotions[emotion] = Math.round(results.reduce((sum, r) => sum + r.emotions[emotion], 0) / results.length);
-  });
-  const dominant = EMOTIONS[Object.values(avgEmotions).indexOf(Math.max(...Object.values(avgEmotions)))];
-  return { emotions: avgEmotions, dominant, confidence: Math.max(...Object.values(avgEmotions)), frames: frameCount, sampledFrames: sampled, timestamp: new Date().toISOString() };
-}
-
-// ========================================
-// Preview & Results
-// ========================================
-
-function showPreview(file, data) {
-  const previewContainer = document.getElementById('previewContainer');
-  const previewInfo = document.getElementById('previewInfo');
-  
-  if (!previewContainer || !previewInfo) return;
-  
-  // Show preview based on type
-  if (file.type.startsWith('image/')) {
-    previewContainer.innerHTML = `<img src="${data}" style="width: 100%; height: 100%; object-fit: contain;">`;
+function showPreview(file) {
+  const box  = document.getElementById("previewContainer");
+  const info = document.getElementById("previewInfo");
+  if (!box) return;
+  if (file.type.startsWith("image/")) {
+    const url = URL.createObjectURL(file);
+    box.innerHTML = `<img src="${url}" style="width:100%;height:100%;object-fit:contain" onload="URL.revokeObjectURL(this.src)">`;
   } else {
-    previewContainer.innerHTML = `
-      <div class="preview-empty">
-        <i class="fas fa-file-video"></i>
-        <p>Video Preview</p>
-      </div>
-    `;
+    box.innerHTML = `<div class="preview-empty"><i class="fas fa-file-video fa-2x" style="color:var(--primary)"></i><p>${file.name}</p></div>`;
   }
-  
-  // Update info
-  previewInfo.style.display = 'block';
-  document.getElementById('fileName').textContent = file.name;
-  document.getElementById('fileSize').textContent = formatFileSize(file.size);
-  document.getElementById('fileType').textContent = file.type;
+  if (info) {
+    info.style.display = "block";
+    document.getElementById("fileName").textContent = file.name;
+    document.getElementById("fileSize").textContent  = formatFileSize(file.size);
+    document.getElementById("fileType").textContent  = file.type;
+  }
 }
 
-function showResult(result) {
-  const resultContainer = document.getElementById('resultContainer');
-  if (!resultContainer) return;
-  
-  resultContainer.innerHTML = `
-    <div style="width: 100%;">
-      <div style="text-align: center; margin-bottom: 1rem;">
-        <div style="font-size: 3rem;">
-          <i class="fas ${EMOTION_ICONS[result.dominant]}"></i>
-        </div>
-        <div style="font-size: 1.5rem; font-weight: 700; text-transform: capitalize; margin-top: 0.5rem;">
-          ${result.dominant}
-        </div>
-        <div style="font-size: 1.25rem; color: var(--accent-primary);">
-          ${result.confidence}%
-        </div>
+function showResult(data) {
+  const box = document.getElementById("resultContainer");
+  if (!box) return;
+  const dom   = data.dominant_emotion || data.dominant || "—";
+  const conf  = data.confidence ? Math.round(data.confidence*100)+"%" : "—";
+  const scores= data.scores || data.emotions || {};
+  box.innerHTML = `
+    <div style="width:100%">
+      <div style="text-align:center;margin-bottom:1rem">
+        <i class="fas ${EMOTION_ICONS[dom]||"fa-meh"}" style="font-size:2.5rem;color:var(--primary)"></i>
+        <div style="font-size:1.4rem;font-weight:700;text-transform:capitalize;margin-top:6px">${dom}</div>
+        <div style="font-size:1rem;color:var(--primary)">${conf}</div>
+        ${data.frames_sampled?`<div style="font-size:0.8rem;color:var(--text-secondary);margin-top:4px">Sampled ${data.frames_sampled} frames</div>`:""}
       </div>
-      <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-        ${Object.entries(result.emotions)
-          .sort((a, b) => b[1] - a[1])
-          .map(([emotion, value]) => `
-            <div style="display: flex; justify-content: space-between; padding: 0.5rem; background: rgba(255,255,255,0.02); border-radius: 6px;">
-              <span style="text-transform: capitalize;">${emotion}</span>
-              <span style="color: var(--accent-primary); font-weight: 700;">${value}%</span>
-            </div>
-          `).join('')}
-      </div>
-      ${result.frames ? `
-        <div style="margin-top: 1rem; padding: 0.5rem; background: rgba(110,231,183,0.05); border-radius: 6px; font-size: 0.875rem; text-align: center;">
-          Analyzed ${result.sampledFrames || result.frames} frame${(result.sampledFrames || result.frames) > 1 ? 's' : ''}
-        </div>
-      ` : ''}
-    </div>
-  `;
+      ${Object.entries(scores).sort((a,b)=>b[1]-a[1]).map(([em,v])=>`
+        <div style="display:flex;justify-content:space-between;padding:5px 0;font-size:0.875rem">
+          <span style="text-transform:capitalize">${em}</span>
+          <span style="color:var(--primary);font-weight:700">${Math.round(v*100)}%</span>
+        </div>`).join("")}
+    </div>`;
 }
 
-window.viewResult = function(index) {
-  const item = uploadedFiles[index];
-  if (!item || !item.result) return;
-  
-  showResult(item.result);
-  
-  // Try to show preview
-  loadFile(item.file).then(data => {
-    showPreview(item.file, data);
-  });
-};
-
-// ========================================
-// File Management
-// ========================================
-
-window.removeFile = function(index) {
-  uploadedFiles.splice(index, 1);
-  updateFileQueue();
-  updateStats();
-};
+window.viewResult = i => { const it=uploadedFiles[i]; if(it?.result){showPreview(it.file);showResult(it.result);} };
+window.removeFile = i => { uploadedFiles.splice(i,1); renderQueue(); updateStats(); };
 
 function clearQueue() {
-  if (uploadedFiles.length === 0) return;
-  
-  if (confirm('Clear all files from queue?')) {
-    uploadedFiles = [];
-    processedResults = [];
-    updateFileQueue();
-    updateStats();
-    
-    // Clear preview
-    const previewContainer = document.getElementById('previewContainer');
-    const previewInfo = document.getElementById('previewInfo');
-    const resultContainer = document.getElementById('resultContainer');
-    
-    if (previewContainer) {
-      previewContainer.innerHTML = `
-        <div class="preview-empty">
-          <i class="fas fa-file-image"></i>
-          <p>No file selected</p>
-        </div>
-      `;
-    }
-    
-    if (previewInfo) {
-      previewInfo.style.display = 'none';
-    }
-    
-    if (resultContainer) {
-      resultContainer.innerHTML = `
-        <div class="result-empty">
-          <i class="fas fa-info-circle"></i>
-          <p>Process a file to see results</p>
-        </div>
-      `;
-    }
-  }
+  if (!uploadedFiles.length) return;
+  if (!confirm("Clear all files?")) return;
+  uploadedFiles=[]; processedResults=[];
+  renderQueue(); updateStats();
+  document.getElementById("previewContainer").innerHTML=`<div class="preview-empty"><i class="fas fa-file-image"></i><p>No file selected</p></div>`;
+  document.getElementById("resultContainer").innerHTML=`<div class="result-empty"><i class="fas fa-info-circle"></i><p>No results yet</p></div>`;
+  document.getElementById("previewInfo").style.display="none";
 }
 
-// ========================================
-// Statistics
-// ========================================
+// ── Stats ─────────────────────────────────────────────────────────
 
 function updateStats() {
-  const totalFiles = uploadedFiles.length;
-  const processedFiles = uploadedFiles.filter(f => f.status === 'completed').length;
-  
-  document.getElementById('totalFiles').textContent = totalFiles;
-  document.getElementById('processedFiles').textContent = processedFiles;
-  
-  // Calculate average emotion
-  if (processedResults.length > 0) {
-    const emotionCounts = {};
+  document.getElementById("totalFiles").textContent     = uploadedFiles.length;
+  document.getElementById("processedFiles").textContent = uploadedFiles.filter(f=>f.status==="completed").length;
+  if (processedResults.length) {
+    const counts = {};
     processedResults.forEach(r => {
-      emotionCounts[r.dominant] = (emotionCounts[r.dominant] || 0) + 1;
+      const em = r.dominant_emotion||r.dominant||"neutral";
+      counts[em]=(counts[em]||0)+1;
     });
-    
-    const avgEmotion = Object.keys(emotionCounts).reduce((a, b) => 
-      emotionCounts[a] > emotionCounts[b] ? a : b
-    );
-    
-    document.getElementById('avgEmotion').textContent = 
-      avgEmotion.charAt(0).toUpperCase() + avgEmotion.slice(1);
-  } else {
-    document.getElementById('avgEmotion').textContent = '—';
-  }
-  
-  // Update batch chart
-  updateBatchChart();
-}
-
-// ========================================
-// Charts
-// ========================================
-
-function initializeBatchChart() {
-  const ctx = document.getElementById('batchChart');
-  if (!ctx) return;
-  
-  batchChart = new Chart(ctx.getContext('2d'), {
-    type: 'doughnut',
-    data: {
-      labels: EMOTIONS.map(e => e.charAt(0).toUpperCase() + e.slice(1)),
-      datasets: [{
-        data: EMOTIONS.map(() => 0),
-        backgroundColor: [
-          'rgba(16, 185, 129, 0.8)',
-          'rgba(59, 130, 246, 0.8)',
-          'rgba(239, 68, 68, 0.8)',
-          'rgba(245, 158, 11, 0.8)',
-          'rgba(139, 92, 246, 0.8)',
-          'rgba(236, 72, 153, 0.8)',
-          'rgba(107, 114, 128, 0.8)'
-        ]
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: {
-            color: '#9ca7ba'
-          }
-        }
-      }
-    }
-  });
-}
-
-function updateBatchChart() {
-  if (!batchChart || processedResults.length === 0) return;
-  
-  const emotionCounts = {};
-  EMOTIONS.forEach(e => emotionCounts[e] = 0);
-  
-  processedResults.forEach(r => {
-    emotionCounts[r.dominant]++;
-  });
-  
-  batchChart.data.datasets[0].data = EMOTIONS.map(e => emotionCounts[e]);
-  batchChart.update();
-}
-
-// ========================================
-// Processing Modal
-// ========================================
-
-function showProcessingModal() {
-  openModal('processingModal');
-  updateProgress();
-}
-
-function updateProgress() {
-  const total = uploadedFiles.length;
-  const processed = uploadedFiles.filter(f => f.status !== 'pending').length;
-  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
-  
-  const progressFill = document.getElementById('progressFill');
-  const progressPercent = document.getElementById('progressPercent');
-  
-  if (progressFill) {
-    progressFill.style.width = percent + '%';
-  }
-  
-  if (progressPercent) {
-    progressPercent.textContent = percent + '%';
+    const dom = Object.keys(counts).reduce((a,b)=>counts[a]>counts[b]?a:b);
+    document.getElementById("avgEmotion").textContent = dom.charAt(0).toUpperCase()+dom.slice(1);
   }
 }
-
-function updateProcessingStatus(text) {
-  const status = document.getElementById('processingStatus');
-  if (status) {
-    status.textContent = text;
-  }
-}
-
-// ========================================
-// Export
-// ========================================
 
 function exportBatchResults() {
-  if (processedResults.length === 0) {
-    alert('No results to export');
-    return;
-  }
-  
-  const format = settings.get('exportFormat') || 'csv';
-  const timestamp = settings.get('includeTimestamp') ? '_' + Date.now() : '';
-  
-  if (format === 'json') {
-    exportToJSON(processedResults, `batch_results${timestamp}.json`);
-  } else {
-    exportToCSV(processedResults, `batch_results${timestamp}.csv`);
-  }
+  if (!processedResults.length) { showToast("No results to export"); return; }
+  const ts = "_"+Date.now();
+  const fmt = settings.get("exportFormat")||"json";
+  if (fmt==="json") exportToJSON(processedResults,`batch${ts}.json`);
+  else exportToCSV(processedResults,`batch${ts}.csv`);
+  showToast("Results exported");
 }
 
-function saveBatchResults() {
-  const batches = storage.load('batches') || [];
-  
-  batches.unshift({
-    id: 'batch_' + Date.now(),
-    timestamp: new Date().toISOString(),
-    fileCount: uploadedFiles.length,
-    results: processedResults
-  });
-  
-  // Keep only last 20 batches
-  if (batches.length > 20) {
-    batches.length = 20;
-  }
-  
-  storage.save('batches', batches);
+function saveBatch() {
+  const batches = storage.load("batches")||[];
+  batches.unshift({ id:"batch_"+Date.now(), timestamp:new Date().toISOString(), count:processedResults.length, results:processedResults });
+  if (batches.length>20) batches.length=20;
+  storage.save("batches", batches);
 }
