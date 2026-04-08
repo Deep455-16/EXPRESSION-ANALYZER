@@ -100,12 +100,12 @@ const BackendAPI = {
     }
   },
 
-  async analyzeUpload(file, sampling = 10) {
+async analyzeUpload(file, sampling = 10) {
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('sampling', sampling);
-      const res = await fetch(`${this.baseUrl}/api/analyze/upload`, { method: 'POST', body: formData });
+      const res = await fetch(`${this.baseUrl}/api/upload`, { method: 'POST', body: formData });
       return await res.json();
     } catch (e) {
       console.error('Upload analysis failed:', e);
@@ -113,9 +113,9 @@ const BackendAPI = {
     }
   },
 
-  async getParticipants(room = '') {
+async getParticipants(room = '') {
     try {
-      const res = await fetch(`${this.baseUrl}/api/participants?room=${room}`);
+      const res = await fetch(`${this.baseUrl}/api/session`);
       return await res.json();
     } catch (e) { return {}; }
   },
