@@ -3,10 +3,10 @@
 ## Goal
 Complete integration: Frontend → Backend APIs/WebSocket → MongoDB persistent sessions.
 
-## Steps (0/8)
+## Steps (2/8)
 
-- [ ] 1. Ignore dataset in .gitignore
-- [ ] 2. Fix main.js API paths
+- [x] 1. Ignore dataset in .gitignore
+- [x] 2. Fix main.js API paths 
 - [ ] 3. Backend.py: MongoDB session_store replacement
 - [ ] 4. Backend.py: Add /api/room endpoints
 - [ ] 5. Commit changes
