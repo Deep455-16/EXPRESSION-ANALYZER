@@ -1,0 +1,4 @@
+# EmotiScan – environment variables
+# cp .env.example .env  then fill in your credentials
+
+MONGO_URI=mongodb+srv://mundradeep17_db_user:<YOUR_PASSWORD>@cluster0.vpferkw.mongodb.net/?retryWrites=true&w=majority&appName=EmotiScan

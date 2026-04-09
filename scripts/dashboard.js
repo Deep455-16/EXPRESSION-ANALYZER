@@ -1,695 +1,311 @@
-// ========================================
-// Dashboard Page - JavaScript
-// ========================================
+/**
+ * dashboard.js – Analytics Dashboard
+ * Pulls real data from MongoDB via /api/stats, /api/sessions, /api/history
+ */
 
-// let trendChart = null; // Removed trend chart
-let distributionChart = null;
-let confidenceChart = null;
-let comparisonChart = null;
-let currentPage = 1;
-let sessionsData = [];
+const BACKEND = localStorage.getItem("backendUrl") || "http://localhost:5000";
 
-// ========================================
-// Initialize Page
-// ========================================
-
-document.addEventListener('DOMContentLoaded', () => {
-  initializeDashboard();
-  setupDashboardListeners();
-  loadDashboardData();
-});
-
-function initializeDashboard() {
-  initializeCharts();
-  generateHeatmap();
-}
-
-function setupDashboardListeners() {
-  document.getElementById('timeRange')?.addEventListener('change', (e) => {
-    loadDashboardData(e.target.value);
-  });
-  
-  document.getElementById('refreshData')?.addEventListener('click', () => {
-    loadDashboardData();
-  });
-  
-  document.getElementById('exportTable')?.addEventListener('click', exportTableData);
-  document.getElementById('prevPage')?.addEventListener('click', () => changePage(-1));
-  document.getElementById('nextPage')?.addEventListener('click', () => changePage(1));
-  
-  // Chart type toggles
-  document.querySelectorAll('.chart-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const chartType = e.target.dataset.chart;
-      toggleChartType(chartType);
-      
-      // Update active state
-      e.target.parentElement.querySelectorAll('.chart-btn').forEach(b => {
-        b.classList.remove('active');
-      });
-      e.target.classList.add('active');
-    });
-  });
-}
-
-// ========================================
-// Load Data
-// ========================================
-
-function loadDashboardData(timeRange = 'week') {
-  // Load sessions from storage
-  const allSessions = storage.load('sessions') || [];
-  
-  // Filter by time range
-  const now = Date.now();
-  const ranges = {
-    today: 24 * 60 * 60 * 1000,
-    week: 7 * 24 * 60 * 60 * 1000,
-    month: 30 * 24 * 60 * 60 * 1000,
-    all: Infinity
-  };
-  
-  const cutoff = now - (ranges[timeRange] || ranges.week);
-  sessionsData = allSessions.filter(s => new Date(s.startTime).getTime() > cutoff);
-  
-  // Always add mock data for demonstration
-  if (sessionsData.length < 10) {
-    sessionsData = generateMockSessions(15);
-  }
-  
-  updateSummaryCards();
-  updateCharts();
-  updateTable();
-  generateInsights();
-}
-
-function generateMockSessions(count) {
-  const sessions = [];
-  const now = Date.now();
-  
-  for (let i = 0; i < count; i++) {
-    const hoursAgo = Math.random() * 168; // Up to a week ago
-    const startTime = new Date(now - hoursAgo * 60 * 60 * 1000);
-    const duration = Math.floor(Math.random() * 300) + 60; // 1-6 minutes
-    const frameCount = Math.floor(duration / 2) + Math.floor(Math.random() * 50);
-    
-    const emotions = {};
-    let total = 0;
-    EMOTIONS.forEach(e => {
-      const value = Math.random() * 30 + 20;
-      emotions[e] = value;
-      total += value;
-    });
-    
-    // Normalize to 100
-    EMOTIONS.forEach(e => {
-      emotions[e] = Math.round((emotions[e] / total) * 100);
-    });
-    
-    const dominantEmotion = Object.keys(emotions).reduce((a, b) => 
-      emotions[a] > emotions[b] ? a : b
-    );
-    
-    sessions.push({
-      id: Date.now() + i,
-      startTime: startTime.toISOString(),
-      duration: duration,
-      frameCount: frameCount,
-      dominantEmotion: dominantEmotion,
-      avgConfidence: Math.floor(Math.random() * 20) + 70,
-      emotions: emotions
-    });
-  }
-  
-  return sessions.sort((a, b) => new Date(b.startTime) - new Date(a.startTime));
-}
-
-// ========================================
-// Summary Cards
-// ========================================
-
-function updateSummaryCards() {
-  const totalSessions = sessionsData.length;
-  const totalFrames = sessionsData.reduce((sum, s) => sum + s.frameCount, 0);
-  const avgDuration = totalSessions > 0 ? 
-    Math.floor(sessionsData.reduce((sum, s) => sum + s.duration, 0) / totalSessions / 60) : 0;
-  
-  // Find dominant emotion across all sessions
-  const emotionCounts = {};
-  EMOTIONS.forEach(e => emotionCounts[e] = 0);
-  
-  sessionsData.forEach(s => {
-    if (s.stats && s.stats.dominant) {
-      emotionCounts[s.stats.dominant]++;
-    }
-  });
-  
-  const dominantEmotion = Object.keys(emotionCounts).reduce((a, b) => 
-    emotionCounts[a] > emotionCounts[b] ? a : b
-  );
-  
-  document.getElementById('totalSessions').textContent = totalSessions;
-  document.getElementById('totalFrames').textContent = totalFrames.toLocaleString();
-  document.getElementById('avgDuration').textContent = avgDuration + 'm';
-  document.getElementById('dominantEmotion').textContent = 
-    dominantEmotion.charAt(0).toUpperCase() + dominantEmotion.slice(1);
-}
-
-// ========================================
-// Charts
-// ========================================
-
-function initializeCharts() {
-  // Trend Chart - Line Chart
-  const trendCtx = document.getElementById('trendChart');
-  if (trendCtx) {
-    trendChart = new Chart(trendCtx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: []
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'top',
-            labels: {
-              color: '#1e293b',
-              font: {
-                size: 13,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              padding: 15,
-              usePointStyle: true,
-              pointStyle: 'circle'
-            }
-          },
-          tooltip: {
-            backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#ffffff',
-            bodyColor: '#ffffff',
-            padding: 12,
-            titleFont: {
-              size: 14,
-              weight: 'bold'
-            },
-            bodyFont: {
-              size: 13
-            },
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            borderWidth: 1,
-            displayColors: true
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            max: 100,
-            ticks: {
-              font: {
-                size: 12,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              color: '#475569'
-            },
-            grid: {
-              color: 'rgba(0, 0, 0, 0.06)',
-              drawBorder: false
-            }
-          },
-          x: {
-            ticks: {
-              font: {
-                size: 12,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              color: '#1e293b'
-            },
-            grid: {
-              display: false,
-              drawBorder: false
-            }
-          }
-        }
-      }
-    });
-  }
-  
-  // Distribution Chart - Pie Chart
-  const distributionCtx = document.getElementById('distributionChart');
-  if (distributionCtx) {
-    distributionChart = new Chart(distributionCtx, {
-      type: 'pie',
-      data: {
-        labels: EMOTIONS.map(e => e.charAt(0).toUpperCase() + e.slice(1)),
-        datasets: [{
-          data: [],
-          backgroundColor: EMOTIONS.map(e => getEmotionColor(e, 0.8)),
-          borderColor: EMOTIONS.map(e => getEmotionColor(e)),
-          borderWidth: 3
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'right',
-            labels: {
-              color: '#1e293b',
-              font: {
-                size: 13,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              padding: 12,
-              usePointStyle: true,
-              pointStyle: 'circle'
-            }
-          },
-          tooltip: {
-            backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#ffffff',
-            bodyColor: '#ffffff',
-            padding: 12,
-            titleFont: {
-              size: 14,
-              weight: 'bold'
-            },
-            bodyFont: {
-              size: 13
-            },
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            borderWidth: 1
-          }
-        }
-      }
-    });
-  }
-  
-  // Confidence Chart - Bar Chart
-  const confidenceCtx = document.getElementById('confidenceChart');
-  if (confidenceCtx) {
-    confidenceChart = new Chart(confidenceCtx, {
-      type: 'bar',
-      data: {
-        labels: ['Happy', 'Sad', 'Angry', 'Surprised', 'Fear', 'Disgust', 'Neutral'],
-        datasets: [{
-          label: 'Average Confidence %',
-          data: [85, 72, 65, 78, 58, 62, 88],
-          backgroundColor: [
-            'rgba(16, 185, 129, 0.8)',
-            'rgba(59, 130, 246, 0.8)',
-            'rgba(239, 68, 68, 0.8)',
-            'rgba(251, 191, 36, 0.8)',
-            'rgba(139, 92, 246, 0.8)',
-            'rgba(245, 158, 11, 0.8)',
-            'rgba(107, 114, 128, 0.8)'
-          ],
-          borderColor: [
-            'rgb(16, 185, 129)',
-            'rgb(59, 130, 246)',
-            'rgb(239, 68, 68)',
-            'rgb(251, 191, 36)',
-            'rgb(139, 92, 246)',
-            'rgb(245, 158, 11)',
-            'rgb(107, 114, 128)'
-          ],
-          borderWidth: 2,
-          borderRadius: 8,
-          barThickness: 40
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            display: false
-          },
-          tooltip: {
-            backgroundColor: 'rgba(30, 41, 59, 0.95)',
-            titleColor: '#ffffff',
-            bodyColor: '#ffffff',
-            padding: 12,
-            titleFont: {
-              size: 14,
-              weight: 'bold'
-            },
-            bodyFont: {
-              size: 13
-            },
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            borderWidth: 1,
-            callbacks: {
-              label: function(context) {
-                return 'Confidence: ' + context.parsed.y + '%';
-              }
-            }
-          }
-        },
-        scales: {
-          y: {
-            beginAtZero: true,
-            max: 100,
-            ticks: {
-              callback: function(value) {
-                return value + '%';
-              },
-              font: {
-                size: 13,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              color: '#475569'
-            },
-            grid: {
-              color: 'rgba(0, 0, 0, 0.06)',
-              drawBorder: false
-            }
-          },
-          x: {
-            ticks: {
-              font: {
-                size: 13,
-                weight: '600',
-                family: "'Inter', sans-serif"
-              },
-              color: '#1e293b'
-            },
-            grid: {
-              display: false,
-              drawBorder: false
-            }
-          }
-        },
-        animation: {
-          duration: 1000,
-          easing: 'easeInOutQuart'
-        }
-      }
-    });
-  }
-}function updateCharts() {
-  updateTrendChart();
-  updateDistributionChart();
-  updateConfidenceChart();
-  updateComparisonChart();
-}
-
-function updateTrendChart() {
-  if (!trendChart) return;
-  
-  // Generate time-based data for the last 7 days
-  const labels = [];
-  const now = new Date();
-  for (let i = 6; i >= 0; i--) {
-    const date = new Date(now);
-    date.setDate(date.getDate() - i);
-    labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-  }
-  
-  // Generate realistic trend data for each emotion
-  const datasets = EMOTIONS.map(emotion => {
-    const baseValue = 30 + Math.random() * 40;
-    const data = labels.map((_, index) => {
-      const variation = (Math.random() - 0.5) * 20;
-      const trend = (index / labels.length) * (Math.random() - 0.5) * 30;
-      return Math.max(10, Math.min(90, baseValue + variation + trend));
-    });
-    
-    return {
-      label: emotion.charAt(0).toUpperCase() + emotion.slice(1),
-      data: data,
-      borderColor: getEmotionColor(emotion),
-      backgroundColor: getEmotionColor(emotion, 0.1),
-      tension: 0.4,
-      fill: true,
-      borderWidth: 3,
-      pointRadius: 4,
-      pointHoverRadius: 6,
-      pointBackgroundColor: getEmotionColor(emotion),
-      pointBorderColor: '#fff',
-      pointBorderWidth: 2
-    };
-  });
-  
-  trendChart.data.labels = labels;
-  trendChart.data.datasets = datasets;
-  trendChart.update();
-}
-
-function updateDistributionChart() {
-  if (!distributionChart) return;
-  
-  // Calculate emotion distribution from sessions
-  const emotionCounts = {};
-  EMOTIONS.forEach(e => emotionCounts[e] = 0);
-  
-  sessionsData.forEach(session => {
-    if (session.emotions) {
-      EMOTIONS.forEach(e => {
-        emotionCounts[e] += session.emotions[e] || 0;
-      });
-    }
-  });
-  
-  const data = EMOTIONS.map(e => emotionCounts[e]);
-  
-  distributionChart.data.datasets[0].data = data;
-  distributionChart.update();
-}
-
-function updateConfidenceChart() {
-  if (!confidenceChart) return;
-  
-  // Calculate average confidence per emotion
-  const emotionConfidence = {};
-  const emotionCount = {};
-  
-  EMOTIONS.forEach(e => {
-    emotionConfidence[e] = 0;
-    emotionCount[e] = 0;
-  });
-  
-  sessionsData.forEach(session => {
-    const emotion = session.dominantEmotion;
-    if (emotionConfidence[emotion] !== undefined) {
-      emotionConfidence[emotion] += session.avgConfidence;
-      emotionCount[emotion]++;
-    }
-  });
-  
-  const data = EMOTIONS.map(e => {
-    return emotionCount[e] > 0 
-      ? Math.round(emotionConfidence[e] / emotionCount[e])
-      : 0;
-  });
-  
-  confidenceChart.data.datasets[0].data = data;
-  confidenceChart.update();
-}
-
-// function updateTrendChart() { ... } // Removed trend chart
-
-function updateDistributionChart() {
-  if (!distributionChart) return;
-  
-  const emotionCounts = {};
-  EMOTIONS.forEach(e => emotionCounts[e] = 0);
-  
-  sessionsData.forEach(session => {
-    if (session.stats && session.stats.dominant) {
-      emotionCounts[session.stats.dominant]++;
-    }
-  });
-  
-  distributionChart.data.datasets[0].data = EMOTIONS.map(e => emotionCounts[e]);
-  distributionChart.update();
-}
-
-function updateConfidenceChart() {
-  if (!confidenceChart) return;
-  
-  const labels = sessionsData.slice(0, 10).map((s, i) => `Session ${sessionsData.length - i}`);
-  const data = sessionsData.slice(0, 10).map(s => s.stats?.avgConfidence || 0);
-  
-  confidenceChart.data.labels = labels.reverse();
-  confidenceChart.data.datasets[0].data = data.reverse();
-  confidenceChart.update();
-}
-
-function updateComparisonChart() {
-  if (!comparisonChart || sessionsData.length < 2) return;
-  
-  // Compare last 3 sessions
-  const recentSessions = sessionsData.slice(0, 3);
-  
-  comparisonChart.data.datasets = recentSessions.map((session, i) => {
-    // Calculate average emotions for session
-    const avgEmotions = {};
-    EMOTIONS.forEach(e => avgEmotions[e] = 0);
-    
-    if (session.data) {
-      session.data.forEach(frame => {
-        Object.entries(frame.emotions).forEach(([emotion, value]) => {
-          avgEmotions[emotion] += value;
-        });
-      });
-      
-      Object.keys(avgEmotions).forEach(e => {
-        avgEmotions[e] = Math.round(avgEmotions[e] / session.data.length);
-      });
-    }
-    
-    return {
-      label: `Session ${sessionsData.length - i}`,
-      data: EMOTIONS.map(e => avgEmotions[e]),
-      borderColor: getEmotionColor(EMOTIONS[i % EMOTIONS.length]),
-      backgroundColor: getEmotionColor(EMOTIONS[i % EMOTIONS.length], 0.1),
-      pointBackgroundColor: getEmotionColor(EMOTIONS[i % EMOTIONS.length]),
-      borderWidth: 2
-    };
-  });
-  
-  comparisonChart.update();
-}
-
-// function toggleChartType(type) { ... } // Removed trend chart
-
-function getEmotionColor(emotion, alpha = 1) {
-  const colors = {
-    happy: `rgba(16, 185, 129, ${alpha})`,
-    sad: `rgba(59, 130, 246, ${alpha})`,
-    angry: `rgba(239, 68, 68, ${alpha})`,
-    surprised: `rgba(245, 158, 11, ${alpha})`,
-    fear: `rgba(139, 92, 246, ${alpha})`,
-    disgust: `rgba(236, 72, 153, ${alpha})`,
-    neutral: `rgba(107, 114, 128, ${alpha})`
-  };
-  return colors[emotion] || `rgba(110, 231, 183, ${alpha})`;
-}
-
-// ========================================
-// Heatmap
-// ========================================
-
-function generateHeatmap() {
-  const heatmap = document.getElementById('heatmap');
-  if (!heatmap) return;
-  
-  // Generate 7x7 grid (7 days x 7 emotions)
-  heatmap.innerHTML = '';
-  
-  for (let i = 0; i < 49; i++) {
-    const cell = document.createElement('div');
-    cell.className = 'heatmap-cell';
-    const intensity = Math.random();
-    cell.style.background = `rgba(110, 231, 183, ${intensity * 0.8})`;
-    cell.title = `Activity: ${Math.round(intensity * 100)}%`;
-    heatmap.appendChild(cell);
-  }
-}
-
-// ========================================
-// Table
-// ========================================
-
-function updateTable() {
-  const tbody = document.getElementById('sessionsTable');
-  if (!tbody) return;
-  
-  const itemsPerPage = 10;
-  const start = (currentPage - 1) * itemsPerPage;
-  const end = start + itemsPerPage;
-  const pageData = sessionsData.slice(start, end);
-  
-  tbody.innerHTML = pageData.map((session, i) => `
-    <tr>
-      <td>${formatDate(session.startTime)}</td>
-      <td><span class="badge" style="background: rgba(59, 130, 246, 0.2); color: #3b82f6; padding: 0.25rem 0.75rem; border-radius: 12px;">Live</span></td>
-      <td>${formatDuration(session.duration)}</td>
-      <td>${session.frameCount}</td>
-      <td style="text-transform: capitalize;">${session.stats?.dominant || 'N/A'}</td>
-      <td>${session.stats?.avgConfidence || 0}%</td>
-      <td>
-        <button class="btn btn-sm btn-secondary" onclick="viewSession(${start + i})">
-          <i class="fas fa-eye"></i>
-        </button>
-        <button class="btn btn-sm btn-secondary" onclick="exportSession(${start + i})">
-          <i class="fas fa-download"></i>
-        </button>
-      </td>
-    </tr>
-  `).join('');
-  
-  // Update pagination
-  const totalPages = Math.ceil(sessionsData.length / itemsPerPage);
-  document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages}`;
-  
-  document.getElementById('prevPage').disabled = currentPage === 1;
-  document.getElementById('nextPage').disabled = currentPage === totalPages;
-}
-
-function changePage(delta) {
-  currentPage += delta;
-  updateTable();
-}
-
-window.viewSession = function(index) {
-  const session = sessionsData[index];
-  if (!session) return;
-  
-  alert(`Session Details\n\nStart: ${formatDate(session.startTime)}\nDuration: ${formatDuration(session.duration)}\nFrames: ${session.frameCount}\nDominant: ${session.stats?.dominant}\nConfidence: ${session.stats?.avgConfidence}%`);
+const EMOTION_COLORS = {
+  happy:     "#4ade80", sad:       "#60a5fa", angry:     "#f87171",
+  surprised: "#34d399", fearful:   "#a78bfa", disgusted: "#fb923c",
+  neutral:   "#94a3b8",
+};
+const EMOTION_LABELS_MAP = {
+  happy:"Happy",sad:"Sad",angry:"Angry",surprised:"Surprised",
+  fearful:"Fearful",disgusted:"Disgusted",neutral:"Neutral",
 };
 
-window.exportSession = function(index) {
-  const session = sessionsData[index];
-  if (!session) return;
-  
-  const format = settings.get('exportFormat') || 'json';
-  const filename = `session_${session.sessionId}`;
-  
-  if (format === 'json') {
-    exportToJSON(session, filename + '.json');
+let trendChart, confChart, distChart;
+let allSessions  = [];
+let currentPage  = 1;
+const PAGE_SIZE  = 10;
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FETCH HELPERS
+// ═════════════════════════════════════════════════════════════════════════════
+
+async function apiFetch(path) {
+  try {
+    const r = await fetch(BACKEND + path, {signal: AbortSignal.timeout(6000)});
+    if (!r.ok) throw new Error(r.status);
+    return await r.json();
+  } catch { return null; }
+}
+
+async function loadDashboard() {
+  const [statsData, sessionsData] = await Promise.all([
+    apiFetch("/api/stats"),
+    apiFetch("/api/sessions?limit=100"),
+  ]);
+
+  if (statsData && statsData.stats) {
+    renderSummaryCards(statsData);
+    renderCharts(statsData);
   } else {
-    const csvData = session.data.map(item => ({
-      timestamp: item.timestamp,
-      dominant: item.dominant,
-      confidence: item.confidence,
-      ...item.emotions
-    }));
-    exportToCSV(csvData, filename + '.csv');
+    renderMockCharts();
   }
-};
 
-function exportTableData() {
-  if (sessionsData.length === 0) {
-    alert('No data to export');
-    return;
+  if (sessionsData && sessionsData.sessions) {
+    allSessions = sessionsData.sessions;
+    renderSessionsTable(allSessions);
+  } else {
+    renderMockSessions();
   }
-  
-  const csvData = sessionsData.map(s => ({
-    startTime: s.startTime,
-    duration: s.duration,
-    frameCount: s.frameCount,
-    dominantEmotion: s.stats?.dominant,
-    avgConfidence: s.stats?.avgConfidence
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SUMMARY CARDS
+// ═════════════════════════════════════════════════════════════════════════════
+
+function renderSummaryCards(data) {
+  const total = data.total_frames || 0;
+
+  const sessions = allSessions.length ||
+    (document.getElementById("totalSessions")?.textContent || 0);
+
+  setEl("totalSessions",   allSessions.length || "—");
+  setEl("totalFrames",     total.toLocaleString());
+
+  const avgConf = data.stats.length
+    ? Math.round(data.stats.reduce((a,r)=>a+r.avg_confidence,0)/data.stats.length*100)
+    : 0;
+  setEl("avgConfidence",   `${avgConf}%`);
+
+  // Avg session duration
+  const completed = allSessions.filter(s=>s.duration_seconds);
+  const avgDur    = completed.length
+    ? Math.round(completed.reduce((a,s)=>a+s.duration_seconds,0)/completed.length)
+    : 0;
+  setEl("avgDuration", avgDur >= 60 ? `${Math.round(avgDur/60)}m` : `${avgDur}s`);
+}
+
+function setEl(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CHARTS
+// ═════════════════════════════════════════════════════════════════════════════
+
+function renderCharts(statsData) {
+  const rows   = statsData.stats || [];
+  const labels = rows.map(r => EMOTION_LABELS_MAP[r.emotion] || r.emotion);
+  const counts = rows.map(r => r.count);
+  const confs  = rows.map(r => Math.round(r.avg_confidence*100));
+  const colors = rows.map(r => EMOTION_COLORS[r.emotion] || "#94a3b8");
+
+  // Trend (simulate from session data)
+  buildTrendChart(allSessions);
+
+  // Confidence bar chart
+  buildConfChart(labels, confs, colors);
+
+  // Distribution doughnut
+  buildDistChart(labels, counts, colors);
+}
+
+function buildTrendChart(sessions) {
+  const ctx = document.getElementById("trendChart")?.getContext("2d");
+  if (!ctx) return;
+  if (trendChart) trendChart.destroy();
+
+  // Group sessions by date, pick dominant emotion
+  const grouped = {};
+  sessions.forEach(s => {
+    const d = s.start_time ? s.start_time.substring(0,10) : "Unknown";
+    if (!grouped[d]) grouped[d] = {};
+    if (s.dominant_emotion) {
+      grouped[d][s.dominant_emotion] = (grouped[d][s.dominant_emotion]||0)+1;
+    }
+  });
+
+  const dates  = Object.keys(grouped).sort().slice(-14);
+  const emotions = ["happy","neutral","sad","angry","surprised","fearful","disgusted"];
+
+  const datasets = emotions.map(em => ({
+    label:           EMOTION_LABELS_MAP[em] || em,
+    data:            dates.map(d => grouped[d]?.[em] || 0),
+    borderColor:     EMOTION_COLORS[em],
+    backgroundColor: EMOTION_COLORS[em] + "22",
+    borderWidth:     2,
+    tension:         0.4,
+    fill:            false,
+    pointRadius:     3,
   }));
-  
-  exportToCSV(csvData, 'sessions_summary.csv');
+
+  trendChart = new Chart(ctx, {
+    type: "line",
+    data: { labels: dates, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend:{ position:"bottom", labels:{ color:"#94a3b8", boxWidth:12 }}},
+      scales: {
+        x: { ticks:{color:"#94a3b8"}, grid:{color:"#1e2a3a"} },
+        y: { ticks:{color:"#94a3b8"}, grid:{color:"#1e2a3a"}, beginAtZero:true },
+      },
+    },
+  });
 }
 
-// ========================================
-// Insights
-// ========================================
-
-function generateInsights() {
-  // This would use actual ML/analysis in production
-  // For now, we'll keep the static insights from the HTML
+function buildConfChart(labels, confs, colors) {
+  const ctx = document.getElementById("confidenceChart")?.getContext("2d");
+  if (!ctx) return;
+  if (confChart) confChart.destroy();
+  confChart = new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels,
+      datasets:[{ label:"Avg Confidence %", data:confs,
+                  backgroundColor:colors.map(c=>c+"99"), borderColor:colors, borderWidth:2 }],
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:"#94a3b8"},grid:{color:"#1e2a3a"}},
+        y:{ticks:{color:"#94a3b8"},grid:{color:"#1e2a3a"},beginAtZero:true,max:100},
+      },
+    },
+  });
 }
+
+function buildDistChart(labels, counts, colors) {
+  const ctx = document.getElementById("distributionChart")?.getContext("2d");
+  if (!ctx) return;
+  if (distChart) distChart.destroy();
+  distChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels,
+      datasets:[{ data:counts, backgroundColor:colors.map(c=>c+"cc"),
+                  borderColor:colors, borderWidth:2 }],
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:"bottom", labels:{color:"#94a3b8", boxWidth:12} } },
+    },
+  });
+}
+
+function renderMockCharts() {
+  // placeholder with FER2013 distribution
+  const labels = ["Happy","Neutral","Sad","Angry","Fearful","Disgusted","Surprised"];
+  const confs  = [82,75,78,71,69,65,80];
+  const counts = [247,248,134,129,75,35,36];
+  const colors = Object.values(EMOTION_COLORS);
+  buildConfChart(labels, confs, colors);
+  buildDistChart(labels, counts, colors);
+  buildTrendChart([]);
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SESSIONS TABLE
+// ═════════════════════════════════════════════════════════════════════════════
+
+function renderSessionsTable(sessions) {
+  const tbody = document.getElementById("sessionsTable");
+  if (!tbody) return;
+
+  const start  = (currentPage-1)*PAGE_SIZE;
+  const page   = sessions.slice(start, start+PAGE_SIZE);
+  const total  = Math.ceil(sessions.length/PAGE_SIZE) || 1;
+
+  document.getElementById("pageInfo")?.textContent && (
+    document.getElementById("pageInfo").textContent = `Page ${currentPage} of ${total}`
+  );
+
+  tbody.innerHTML = page.map(s => {
+    const date  = s.start_time ? new Date(s.start_time).toLocaleDateString() : "—";
+    const dur   = s.duration_seconds ? formatDuration(s.duration_seconds) : "Active";
+    const frames= s.total_frames ?? "—";
+    const dom   = s.dominant_emotion || "—";
+    const cfg   = EMOTION_COLORS[dom] || "#94a3b8";
+    const conf  = s.emotion_distribution?.[dom]
+                ? `${Math.round(s.emotion_distribution[dom]*100)}%` : "—";
+    return `
+      <tr>
+        <td>${date}</td>
+        <td>${dur}</td>
+        <td>${frames}</td>
+        <td><span style="color:${cfg};font-weight:600">${dom}</span></td>
+        <td>${conf}</td>
+      </tr>`;
+  }).join("");
+}
+
+function renderMockSessions() {
+  allSessions = Array.from({length:8},(_,i)=>({
+    start_time:       new Date(Date.now()-i*86400000).toISOString(),
+    duration_seconds: 120+Math.random()*600|0,
+    total_frames:     80+Math.random()*200|0,
+    dominant_emotion: ["happy","neutral","sad","angry","surprised"][i%5],
+    emotion_distribution:{ happy:0.4,neutral:0.3,sad:0.1,angry:0.1,surprised:0.1 },
+  }));
+  renderSessionsTable(allSessions);
+}
+
+function formatDuration(s) {
+  return s >= 3600 ? `${(s/3600).toFixed(1)}h`
+       : s >= 60   ? `${Math.round(s/60)}m`
+       : `${Math.round(s)}s`;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// EXPORT
+// ═════════════════════════════════════════════════════════════════════════════
+
+function exportTable() {
+  const hdr  = "date,duration,frames,emotion,confidence\n";
+  const rows = allSessions.map(s => {
+    const date = s.start_time ? new Date(s.start_time).toLocaleDateString() : "";
+    const dur  = s.duration_seconds ? formatDuration(s.duration_seconds) : "";
+    const dom  = s.dominant_emotion || "";
+    const conf = s.emotion_distribution?.[dom]
+               ? Math.round(s.emotion_distribution[dom]*100)+"%" : "";
+    return `${date},${dur},${s.total_frames||""},${dom},${conf}`;
+  }).join("\n");
+  const blob = new Blob([hdr+rows],{type:"text/csv"});
+  const a    = document.createElement("a");
+  a.href     = URL.createObjectURL(blob);
+  a.download = `emotiscan_sessions_${Date.now()}.csv`;
+  a.click();
+  showToast("Exported ✓");
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═════════════════════════════════════════════════════════════════════════════
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadDashboard();
+
+  document.getElementById("refreshData")?.addEventListener("click", loadDashboard);
+  document.getElementById("exportTable")?.addEventListener("click", exportTable);
+
+  document.getElementById("prevPage")?.addEventListener("click", () => {
+    if (currentPage > 1) { currentPage--; renderSessionsTable(allSessions); }
+  });
+  document.getElementById("nextPage")?.addEventListener("click", () => {
+    const max = Math.ceil(allSessions.length/PAGE_SIZE)||1;
+    if (currentPage < max) { currentPage++; renderSessionsTable(allSessions); }
+  });
+
+  document.getElementById("timeRange")?.addEventListener("change", e => {
+    // Re-filter allSessions by time range
+    const now = Date.now();
+    const cutoffs = { today:86400000, week:604800000, month:2592000000, all:Infinity };
+    const ms = cutoffs[e.target.value] || Infinity;
+    const filtered = allSessions.filter(s => {
+      if (!s.start_time) return true;
+      return (now - new Date(s.start_time).getTime()) <= ms;
+    });
+    renderSessionsTable(filtered);
+  });
+});
