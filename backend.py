@@ -72,7 +72,7 @@ ALLOWED_EXT = {"jpg","jpeg","png","gif","webp","mp4","webm","mov","avi"}
 
 app = Flask(__name__, static_folder=str(BASE_DIR), static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
-CORS(app, origins="*")
+CORS(app, origins=["*", "https://deep455-16.github.io"])
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading",
                     logger=False, engineio_logger=False)
 
@@ -738,6 +738,68 @@ def _process_video(path: str, sample_every: int = 30) -> dict:
     dom   = max(norm, key=norm.get)
     return {"dominant_emotion":dom,"confidence":norm[dom],"scores":norm,
             "frames_sampled":len(results),"total_frames":idx}
+
+
+# ── Bulk export ────────────────────────────────────────────────────────────────
+
+@app.route("/api/export")
+def api_export():
+    """GET /api/export?format=json|csv — bulk download all results."""
+    if _col_results is None:
+        return jsonify({"error": "MongoDB not connected"}), 503
+
+    fmt = request.args.get("format", "json")
+    limit = min(int(request.args.get("limit", 1000)), 5000)
+    docs = list(
+        _col_results.find({}, {"_id": 0, "annotated_frame": 0})
+        .sort("timestamp", -1)
+        .limit(limit)
+    )
+
+    if fmt == "csv":
+        import io, csv as csv_mod
+        si = io.StringIO()
+        writer = csv_mod.writer(si)
+        writer.writerow(["timestamp", "participant_id", "session_id",
+                         "emotion", "confidence", "faces", "attention"])
+        for d in docs:
+            faces = d.get("face_emotions", [])
+            fe = faces[0] if faces else {}
+            writer.writerow([
+                d.get("datetime", ""),
+                d.get("participant_id", ""),
+                d.get("session_id", ""),
+                fe.get("emotion", ""),
+                fe.get("confidence", ""),
+                d.get("faces_detected", 0),
+                d.get("attention", ""),
+            ])
+        from flask import Response
+        return Response(
+            si.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-Disposition": "attachment;filename=emotiscan_export.csv"},
+        )
+
+    return jsonify({"exported_at": datetime.now(timezone.utc).isoformat(),
+                    "count": len(docs), "results": docs})
+
+
+@app.route("/api/settings", methods=["GET", "POST"])
+def api_settings():
+    """GET/POST /api/settings — sync settings with backend (optional)."""
+    SETTINGS_FILE = BASE_DIR / "user_settings.json"
+    if request.method == "POST":
+        data = request.get_json(force=True)
+        try:
+            SETTINGS_FILE.write_text(json.dumps(data, indent=2))
+            return jsonify({"status": "saved"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        if SETTINGS_FILE.exists():
+            return jsonify(json.loads(SETTINGS_FILE.read_text()))
+        return jsonify({})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

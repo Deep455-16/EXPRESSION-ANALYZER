@@ -1,15 +1,18 @@
 /**
- * upload.js – File upload & batch analysis (Error Handling Enhanced)
- * POSTs to /api/upload, displays per-file emotion results from backend.
- * Added: timeout, retries, health check, fallback mock, console logging.
+ * upload.js — File upload & batch analysis
+ * Uses FaceEngine for client-side emotion detection (face-api.js).
+ * Falls back to backend /api/upload when available.
  */
 
 const BACKEND = localStorage.getItem('backendUrl') || 'http://localhost:5000';
 const EMOTION_CFG = {
-  happy: {icon:'😊',color:'#4ade80'}, sad: {icon:'😢',color:'#60a5fa'},
-  angry: {icon:'😠',color:'#f87171'}, surprised: {icon:'😲',color:'#34d399'},
-  fearful: {icon:'😨',color:'#a78bfa'}, disgusted: {icon:'🤢',color:'#fb923c'},
-  neutral: {icon:'😐',color:'#94a3b8'},
+  happy:     { icon: '😊', color: '#4ade80', label: 'Happy' },
+  sad:       { icon: '😢', color: '#60a5fa', label: 'Sad' },
+  angry:     { icon: '😠', color: '#f87171', label: 'Angry' },
+  surprised: { icon: '😲', color: '#34d399', label: 'Surprised' },
+  fearful:   { icon: '😨', color: '#a78bfa', label: 'Fearful' },
+  disgusted: { icon: '🤢', color: '#fb923c', label: 'Disgusted' },
+  neutral:   { icon: '😐', color: '#94a3b8', label: 'Neutral' },
 };
 
 let queue = [];
@@ -17,26 +20,26 @@ let results = [];
 let totalStart = null;
 let processed = 0;
 let timeTimer = null;
+let backendAvailable = false;
 
 // ── DOM ───────────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const uploadArea = $('uploadArea');
-const fileInput = $('fileInput');
-const fileQueue = $('fileQueue');
-const queueList = $('queueList');
+const uploadArea  = $('uploadArea');
+const fileInput   = $('fileInput');
+const fileQueue   = $('fileQueue');
+const queueList   = $('queueList');
 const previewCont = $('previewContainer');
 const previewInfo = $('previewInfo');
-const resultCont = $('resultContainer');
+const resultCont  = $('resultContainer');
 
 // ── Backend Health Check ──────────────────────────────────────────────────────
 async function checkBackendHealth() {
   try {
-    const res = await fetch(`${BACKEND}/health`, {mode: 'cors', cache: 'no-store'});
-    const health = await res.json();
-    console.log('[upload.js] Backend health:', health);
-    return health.status === 'ok';
-  } catch (e) {
-    console.error('[upload.js] Backend unreachable:', e);
+    backendAvailable = await FaceEngine.setBackend(BACKEND);
+    console.log('[upload.js] Backend:', backendAvailable ? 'online' : 'offline');
+    return backendAvailable;
+  } catch {
+    backendAvailable = false;
     return false;
   }
 }
@@ -58,14 +61,14 @@ fileInput?.addEventListener('change', () => {
 
 // ── Queue management ──────────────────────────────────────────────────────────
 function addFiles(files) {
-  const allowed = ['jpg','jpeg','png','gif','webp','mp4','webm','mov','avi'];
+  const allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'webm', 'mov', 'avi'];
   files.forEach(f => {
     const ext = f.name.split('.').pop().toLowerCase();
-    if (!allowed.includes(ext)) { 
-      showToast(`${f.name}: unsupported type`, 'error'); 
-      return; 
+    if (!allowed.includes(ext)) {
+      showToast(`${f.name}: unsupported type`, 'error');
+      return;
     }
-    queue.push({ file: f, id: Date.now()+Math.random(), status: 'pending', result: null });
+    queue.push({ file: f, id: Date.now() + Math.random(), status: 'pending', result: null });
   });
   renderQueue();
   if ($('autoProcess')?.checked && queue.some(q => q.status === 'pending')) {
@@ -74,8 +77,8 @@ function addFiles(files) {
 }
 
 function renderQueue() {
-  if (!queue.length) { fileQueue.style.display = 'none'; return; }
-  fileQueue.style.display = 'block';
+  if (!queue.length) { if (fileQueue) fileQueue.style.display = 'none'; return; }
+  if (fileQueue) fileQueue.style.display = 'block';
   $('totalFiles').textContent = queue.length;
 
   queueList.innerHTML = queue.map(item => `
@@ -90,7 +93,7 @@ function renderQueue() {
       <div class="queue-status ${item.status}">
         ${item.status === 'pending' ? '<i class="fas fa-clock"></i> Pending' :
           item.status === 'processing' ? '<i class="fas fa-spinner fa-spin"></i> Processing' :
-          item.status === 'done' ? `<span style="color:#4ade80"><i class="fas fa-check"></i> ${item.result?.dominant_emotion || 'Done'}</span>` :
+          item.status === 'done' ? `<span style="color:#4ade80"><i class="fas fa-check"></i> ${item.result?.dominant_emotion || item.result?.face_emotions?.[0]?.emotion || 'Done'}</span>` :
           `<span style="color:#f87171"><i class="fas fa-times"></i> ${item.result?.error || 'Error'}</span>`}
       </div>
       <button class="btn btn-sm btn-danger" onclick="removeItem('${item.id}')">
@@ -98,7 +101,7 @@ function renderQueue() {
       </button>
     </div>`).join('');
 
-  const first = queue[0];
+  const first = queue.find(q => q.status === 'done') || queue[0];
   if (first) showPreview(first.file);
 }
 
@@ -107,15 +110,15 @@ function removeItem(id) {
   renderQueue();
 }
 
-$('clearQueue')?.addEventListener('click', () => { queue = []; renderQueue(); });
+$('clearQueue')?.addEventListener('click', () => { queue = []; results = []; renderQueue(); });
 
 // ── Preview ───────────────────────────────────────────────────────────────────
 function showPreview(file) {
   if (!previewCont) return;
   const url = URL.createObjectURL(file);
   previewCont.innerHTML = file.type.startsWith('video')
-    ? `<video src="${url}" controls style="max-width:100%;border-radius:8px"></video>`
-    : `<img src="${url}" style="max-width:100%;border-radius:8px">`;
+    ? `<video src="${url}" controls style="max-width:100%;border-radius:8px;max-height:250px;"></video>`
+    : `<img src="${url}" style="max-width:100%;border-radius:8px;max-height:250px;object-fit:contain;">`;
   if (previewInfo) {
     previewInfo.style.display = 'block';
     $('fileName').textContent = file.name;
@@ -124,166 +127,193 @@ function showPreview(file) {
   }
 }
 
-// ── Process Single File (Enhanced Error Handling) ─────────────────────────────
+// ── Process single file ───────────────────────────────────────────────────────
 async function processFile(item) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-  
   try {
-    const fd = new FormData();
-    fd.append('file', item.file);
-    
-    console.log(`[upload.js] Uploading ${item.file.name} to ${BACKEND}/api/upload`);
-    
-    const res = await fetch(`${BACKEND}/api/upload`, {
-      method: 'POST',
-      body: fd,
-      mode: 'cors',
-      cache: 'no-store',
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeout);
-    
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    let data;
+
+    if (backendAvailable) {
+      // Try backend first
+      try {
+        const fd = new FormData();
+        fd.append('file', item.file);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        const res = await fetch(`${BACKEND}/api/upload`, {
+          method: 'POST', body: fd, mode: 'cors', signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        data = await res.json();
+        data.source = 'backend';
+      } catch (err) {
+        console.warn('[upload.js] Backend upload failed, using client-side:', err.message);
+        data = await FaceEngine.analyzeFile(item.file);
+        data.source = 'client';
+      }
+    } else {
+      // Client-side analysis via face-api.js
+      data = await FaceEngine.analyzeFile(item.file);
+      data.source = 'client';
     }
-    
-    const data = await res.json();
-    console.log(`[upload.js] Result for ${item.file.name}:`, data);
-    
-    if (data.error) {
-      item.result = { error: data.error };
+
+    if (data.error && !data.dominant_emotion && !data.face_emotions?.length) {
+      item.result = data;
       item.status = 'error';
       return;
     }
-    
+
     item.result = data;
     item.status = 'done';
-    if (!data.error) results.push({ filename: item.file.name, ...data });
-    
+
+    // Normalize result for display
+    const dominant = data.dominant_emotion || data.face_emotions?.[0]?.emotion || 'neutral';
+    const conf = data.confidence || data.face_emotions?.[0]?.confidence || 0;
+    const scores = data.scores || data.face_emotions?.[0]?.scores || {};
+
+    results.push({
+      filename: item.file.name,
+      dominant_emotion: dominant,
+      confidence: conf,
+      scores: scores,
+      source: data.source,
+      timestamp: Date.now() / 1000,
+      frames_sampled: data.frames_sampled,
+    });
+
+    // Save to IndexedDB
+    EmotiDB.addUpload({
+      filename:  item.file.name,
+      fileSize:  item.file.size,
+      fileType:  item.file.type,
+      dominant_emotion: dominant,
+      confidence: conf,
+      scores:    scores,
+      source:    data.source,
+      timestamp: new Date().toISOString(),
+      frames_sampled: data.frames_sampled,
+    });
+
   } catch (error) {
-    clearTimeout(timeout);
-    console.error(`[upload.js] Upload failed for ${item.file.name}:`, error);
+    console.error('[upload.js] Process error:', error);
     item.status = 'error';
     item.result = { error: error.message };
-    
-    // Fallback mock result for demo
-    item.result = {
-      dominant_emotion: 'neutral',
-      confidence: 0.65,
-      scores: { neutral: 0.65, happy: 0.20, sad: 0.15 },
-      error: 'Backend error (using mock)'
-    };
-    item.status = 'done';
   }
 }
 
-// ── Processing ────────────────────────────────────────────────────────────────
+// ── Process all ───────────────────────────────────────────────────────────────
 async function processAll() {
   const pending = queue.filter(q => q.status === 'pending');
-  if (!pending.length) { 
-    showToast('No pending files', 'warn'); 
-    return; 
+  if (!pending.length) {
+    showToast('No pending files', 'warn');
+    return;
   }
 
-  // Health check first
-  const backendOK = await checkBackendHealth();
-  if (!backendOK) {
-    showToast('Backend not responding - using fallback mode', 'warn');
-  }
+  // Init face engine
+  await FaceEngine.init();
 
   totalStart = Date.now();
   processed = 0;
   startTimeTimer();
 
-  // Process sequentially with queue feedback
   for (const item of pending) {
     item.status = 'processing';
     renderQueue();
-    
-    await processFile(item); // Await each for sequential progress
-    
+
+    await processFile(item);
+
     processed++;
     $('processedFiles').textContent = processed;
     renderQueue();
-    
-    if (item.result && !item.result.error) {
+
+    if (item.result && item.status === 'done') {
       showResult(item.result);
+      // Show annotated preview if available
+      if (item.result.annotated_preview) {
+        showAnnotatedPreview(item.result.annotated_preview);
+      }
     }
-    
-    // Small delay for UI feedback
-    await new Promise(r => setTimeout(r, 200));
+
+    await new Promise(r => setTimeout(r, 150));
   }
 
   clearInterval(timeTimer);
   const dom = topEmotion();
-  if (dom) $('avgEmotion').textContent = dom;
+  if (dom) $('avgEmotion').textContent = EMOTION_CFG[dom]?.label || dom;
   showToast(`Processed ${processed} file${processed !== 1 ? 's' : ''} ✓`);
 }
 
 $('processAll')?.addEventListener('click', processAll);
 
-// ── Mock Result for Testing (if backend down) ────────────────────────────────
-function getMockResult(filename) {
-  const emotions = Object.keys(EMOTION_CFG);
-  const dom = emotions[Math.floor(Math.random() * emotions.length)];
-  return {
-    filename,
-    dominant_emotion: dom,
-    confidence: 0.6 + Math.random() * 0.3,
-    scores: Object.fromEntries(emotions.map(e => [e, Math.random() * 0.3])),
-    frames_sampled: 1
-  };
-}
-
-// ── Result Display & Utilities ────────────────────────────────────────────────
+// ── Result display ────────────────────────────────────────────────────────────
 function showResult(data) {
   if (!resultCont) return;
   const faces = data.face_emotions || [];
   const primary = faces[0];
-  const dom = data.dominant_emotion || primary?.emotion || '—';
-  const cfg = EMOTION_CFG[dom] || { icon: '❓', color: '#94a3b8' };
+  const dom = data.dominant_emotion || primary?.emotion || 'neutral';
+  const cfg = EMOTION_CFG[dom] || { icon: '❓', color: '#94a3b8', label: dom };
   const conf = data.confidence ?? primary?.confidence ?? 0;
   const scores = data.scores || primary?.scores || {};
+  const source = data.source || 'unknown';
 
   resultCont.innerHTML = `
-    <div style="text-align:center;padding:12px 0">
-      <div style="font-size:2.8rem;margin-bottom:8px">${cfg.icon}</div>
-      <div style="font-size:1.2rem;font-weight:700;color:${cfg.color}">${dom}</div>
-      <div style="color:#94a3b8;font-size:.85rem">${Math.round(conf*100)}% confidence</div>
-      ${data.frames_sampled ? `<div style="color:#94a3b8;font-size:.8rem;margin-top:4px">${data.frames_sampled} frames</div>` : ''}
-      ${data.error ? `<div style="color:#f87171;font-size:.75rem">${data.error}</div>` : ''}
-    </div>
-    <div class="emotion-bars" style="padding:0 8px">
-      ${Object.entries(scores).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([em,v])=>{
-        const c = EMOTION_CFG[em]?.color || '#94a3b8';
-        return `<div class="emotion-bar-row">
-          <span class="emotion-bar-label" style="font-size:.8rem">${em}</span>
-          <div class="emotion-bar-track"><div class="emotion-bar-fill" style="width:${Math.round(v*100)}%;background:${c}"></div></div>
-          <span class="emotion-bar-pct">${Math.round(v*100)}%</span>
-        </div>`;
-      }).join('')}
+    <div style="width:100%;">
+      <div style="text-align:center;padding:16px 0">
+        <div style="font-size:3rem;margin-bottom:8px">${cfg.icon}</div>
+        <div style="font-size:1.3rem;font-weight:800;color:${cfg.color};text-transform:uppercase;letter-spacing:0.05em">${cfg.label || dom}</div>
+        <div style="color:var(--text-secondary);font-size:.9rem;font-weight:600;margin-top:4px">${Math.round(conf * 100)}% confidence</div>
+        ${data.frames_sampled ? `<div style="color:var(--text-secondary);font-size:.8rem;margin-top:4px"><i class="fas fa-film" style="margin-right:4px"></i>${data.frames_sampled} frames analyzed</div>` : ''}
+        <div style="display:inline-block;margin-top:8px;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${source === 'backend' ? 'rgba(16,185,129,0.15);color:#10b981' : source === 'client' ? 'rgba(96,165,250,0.15);color:#60a5fa' : 'rgba(148,163,184,0.15);color:#94a3b8'}">
+          <i class="fas fa-${source === 'backend' ? 'server' : source === 'client' ? 'brain' : 'dice'}"></i> ${source === 'backend' ? 'Backend' : source === 'client' ? 'Client AI' : 'Demo'}
+        </div>
+      </div>
+      <div class="emotion-bars" style="padding:0 8px">
+        ${Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([em, v]) => {
+    const c = EMOTION_CFG[em]?.color || '#94a3b8';
+    const lbl = EMOTION_CFG[em]?.label || em;
+    return `<div class="emotion-bar-row">
+              <span class="emotion-bar-label" style="font-size:.8rem">${lbl}</span>
+              <div class="emotion-bar-track"><div class="emotion-bar-fill" style="width:${Math.round(v * 100)}%;background:${c}"></div></div>
+              <span class="emotion-bar-pct">${Math.round(v * 100)}%</span>
+            </div>`;
+  }).join('')}
+      </div>
     </div>`;
+}
+
+function showAnnotatedPreview(dataUrl) {
+  if (!previewCont || !dataUrl) return;
+  previewCont.innerHTML = `<img src="${dataUrl}" style="max-width:100%;border-radius:8px;max-height:250px;object-fit:contain;">`;
 }
 
 function topEmotion() {
   const counts = {};
   results.forEach(r => {
-    const e = r.dominant_emotion || r.face_emotions?.[0]?.emotion;
+    const e = r.dominant_emotion;
     if (e) counts[e] = (counts[e] || 0) + 1;
   });
-  return Object.entries(counts).sort((a,b) => b[1]-a[1])[0]?.[0] || null;
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
 }
 
 // ── Export ────────────────────────────────────────────────────────────────────
 $('exportResults')?.addEventListener('click', () => {
   if (!results.length) { showToast('No results yet', 'warn'); return; }
-  const blob = new Blob([JSON.stringify(results, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `emotiscan_upload_${Date.now()}.json`;
-  a.click();
+
+  const fmt = settings.get('exportFormat') || 'json';
+  if (fmt === 'csv') {
+    const headers = ['filename', 'emotion', 'confidence', 'source', 'timestamp', 'frames_sampled'];
+    const rows = results.map(r => [
+      r.filename, r.dominant_emotion, Math.round((r.confidence || 0) * 100) + '%',
+      r.source || '', new Date(r.timestamp * 1000).toISOString(), r.frames_sampled || 1,
+    ]);
+    exportToCSV(headers, rows, `emotiscan_upload_${Date.now()}.csv`);
+  } else {
+    exportToJSON({
+      exported_at: new Date().toISOString(),
+      total_files: results.length,
+      results: results,
+    }, `emotiscan_upload_${Date.now()}.json`);
+  }
   showToast('Results exported ✓');
 });
 
@@ -292,28 +322,24 @@ function startTimeTimer() {
   clearInterval(timeTimer);
   timeTimer = setInterval(() => {
     if (!totalStart) return;
-    $('processingTime').textContent = `${((Date.now()-totalStart)/1000).toFixed(1)}s`;
+    $('processingTime').textContent = `${((Date.now() - totalStart) / 1000).toFixed(1)}s`;
   }, 200);
 }
 
 function formatBytes(b) {
-  return b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`;
+  return b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 }
 
-function showToast(msg, type = 'success') {
-  const toast = $('toast');
-  if (!toast) return;
-  $('toastMessage').textContent = msg;
-  toast.className = `toast ${type}`;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 4000);
-}
-
-// Auto-init
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('[upload.js] Initialized. Backend:', BACKEND);
-  checkBackendHealth().then(ok => {
-    if (!ok) console.warn('[upload.js] Backend not ready - uploads will use fallback');
-  });
+// ── Min confidence slider ────────────────────────────────────────────────────
+$('minConfidence')?.addEventListener('input', e => {
+  const label = $('minConfidenceValue');
+  if (label) label.textContent = `${e.target.value}%`;
 });
 
+// ── Auto-init ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  console.log('[upload.js] Initialized. Backend:', BACKEND);
+  // Pre-init face engine
+  FaceEngine.init();
+  checkBackendHealth();
+});

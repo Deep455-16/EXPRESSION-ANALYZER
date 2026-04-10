@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Online Meet - Expression Analyser</title>
+  <meta name="description" content="AI-powered facial expression analysis for meetings, video uploads, and real-time webcam detection. Detect 7 emotions with high precision.">
+  <title>Expression Analyser — AI Emotion Detection</title>
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -12,10 +13,8 @@
   <nav class="navbar">
     <div class="container">
       <div class="nav-brand">
-        <div class="logo-icon">
-          <i class="fas fa-smile-beam"></i>
-        </div>
-        <span class="brand-name">Expression Analyser</span>
+        <div class="logo-icon"><i class="fas fa-smile-beam"></i></div>
+        <span class="brand-name">Expression <strong style="color:var(--primary)">Analyser</strong></span>
       </div>
       <ul class="nav-menu" id="navMenu">
         <li><a href="index.html" class="active">Home</a></li>
@@ -24,9 +23,7 @@
         <li><a href="dashboard.html">Dashboard</a></li>
         <li><a href="settings.html">Settings</a></li>
       </ul>
-      <button class="mobile-toggle" id="mobileToggle">
-        <i class="fas fa-bars"></i>
-      </button>
+      <button class="mobile-toggle" id="mobileToggle"><i class="fas fa-bars"></i></button>
     </div>
   </nav>
 
@@ -34,13 +31,13 @@
   <section class="hero">
     <div class="container">
       <h1 class="hero-title">Expression Analysis</h1>
-      <p class="hero-subtitle">See emotions in real-time from your webcam</p>
+      <p class="hero-subtitle">Real-time AI emotion detection from your webcam, video calls, and uploaded media</p>
       <div class="hero-buttons">
-        <a href="live.html" class="btn btn-primary">
-          <i class="fas fa-video"></i> Start
+        <a href="live.html" class="btn btn-primary btn-large">
+          <i class="fas fa-video"></i> Start Live Analysis
         </a>
-        <a href="upload.html" class="btn btn-secondary">
-          <i class="fas fa-upload"></i> Upload
+        <a href="upload.html" class="btn btn-secondary btn-large">
+          <i class="fas fa-upload"></i> Upload Media
         </a>
       </div>
       <div class="hero-stats">
@@ -52,6 +49,10 @@
           <div class="stat-number">Real-time</div>
           <div class="stat-label">Detection</div>
         </div>
+        <div class="stat-item">
+          <div class="stat-number">Client AI</div>
+          <div class="stat-label">No Server Needed</div>
+        </div>
       </div>
     </div>
   </section>
@@ -60,54 +61,36 @@
   <section class="features">
     <div class="container">
       <h2 class="section-title">Features</h2>
-      
       <div class="features-grid">
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-video"></i>
-          </div>
+          <div class="feature-icon"><i class="fas fa-video"></i></div>
           <h3>Live Detection</h3>
-          <p>See emotions as they happen</p>
+          <p>Real-time emotion detection from your webcam with face-api.js AI</p>
         </div>
-        
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-brain"></i>
-          </div>
+          <div class="feature-icon"><i class="fas fa-brain"></i></div>
           <h3>7 Emotions</h3>
-          <p>Happy, sad, angry, surprised, fear, disgust, neutral</p>
+          <p>Happy, sad, angry, surprised, fearful, disgusted, and neutral</p>
         </div>
-        
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-chart-line"></i>
-          </div>
-          <h3>Analytics</h3>
-          <p>Track emotions over time</p>
+          <div class="feature-icon"><i class="fas fa-chart-line"></i></div>
+          <h3>Analytics Dashboard</h3>
+          <p>Track emotion trends, confidence scores, and session history</p>
         </div>
-        
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-upload"></i>
-          </div>
-          <h3>Upload Files</h3>
-          <p>Upload images or videos to analyze</p>
+          <div class="feature-icon"><i class="fas fa-upload"></i></div>
+          <h3>Upload & Analyze</h3>
+          <p>Batch process images and videos for detailed emotion reports</p>
         </div>
-        
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-download"></i>
-          </div>
-          <h3>Export Data</h3>
-          <p>Download results as CSV or JSON</p>
+          <div class="feature-icon"><i class="fas fa-users"></i></div>
+          <h3>WebRTC Meetings</h3>
+          <p>Multi-participant video with per-person emotion tracking</p>
         </div>
-        
         <div class="feature-card">
-          <div class="feature-icon">
-            <i class="fas fa-shield-alt"></i>
-          </div>
-          <h3>Private</h3>
-          <p>Everything runs in your browser</p>
+          <div class="feature-icon"><i class="fas fa-download"></i></div>
+          <h3>Export Reports</h3>
+          <p>Download analysis results as JSON, CSV, or PDF reports</p>
         </div>
       </div>
     </div>
@@ -122,7 +105,7 @@
           <div class="step-number">1</div>
           <div class="step-content">
             <h3>Capture</h3>
-            <p>Start webcam or upload files</p>
+            <p>Start your webcam or upload files</p>
           </div>
         </div>
         <div class="step-arrow">→</div>
@@ -130,15 +113,15 @@
           <div class="step-number">2</div>
           <div class="step-content">
             <h3>Analyze</h3>
-            <p>Detects expressions automatically</p>
+            <p>AI detects faces and classifies emotions</p>
           </div>
         </div>
         <div class="step-arrow">→</div>
         <div class="step">
           <div class="step-number">3</div>
           <div class="step-content">
-            <h3>View Results</h3>
-            <p>See emotion breakdowns</p>
+            <h3>Insights</h3>
+            <p>View results, trends, and export reports</p>
           </div>
         </div>
       </div>
@@ -148,9 +131,9 @@
   <!-- CTA Section -->
   <section class="cta">
     <div class="container">
-      <h2>Get started</h2>
+      <h2>Ready to analyze expressions?</h2>
       <a href="live.html" class="btn btn-primary btn-large">
-        <i class="fas fa-video"></i> Start
+        <i class="fas fa-video"></i> Get Started
       </a>
     </div>
   </section>
@@ -159,12 +142,12 @@
   <footer class="footer">
     <div class="container">
       <div class="footer-bottom">
-        <p>&copy; 2025 Expression Analyser</p>
+        <p>&copy; <script>document.write(new Date().getFullYear())</script> Expression Analyser — Built with AI</p>
       </div>
     </div>
   </footer>
 
-  <!-- Toast Notification -->
+  <!-- Toast -->
   <div class="toast" id="toast">
     <i class="fas fa-check-circle"></i>
     <span id="toastMessage">Success!</span>

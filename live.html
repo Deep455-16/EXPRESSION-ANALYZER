@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Real-time facial expression detection with webcam and WebRTC multi-participant support.">
   <title>Live Analysis - Expression Analyser</title>
   <link rel="stylesheet" href="styles/main.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -68,15 +69,14 @@
             <i class="fas fa-circle" style="font-size:8px"></i>
             <span id="statusText">Camera Off</span>
           </div>
-          <!-- Backend latency indicator -->
-          <div id="backendBadge" style="display:none;position:absolute;bottom:12px;left:12px;background:rgba(4,8,15,0.85);padding:5px 12px;border-radius:8px;font-family:var(--fm);font-size:11px;color:var(--primary);border:1px solid var(--border);">
-            <i class="fas fa-server"></i> <span id="latencyMs">—</span>ms
+          <div id="backendBadge" style="display:none;position:absolute;bottom:12px;left:12px;background:rgba(4,8,15,0.85);backdrop-filter:blur(8px);padding:5px 12px;border-radius:8px;font-size:11px;color:var(--primary);border:1px solid var(--border);">
+            <i class="fas fa-bolt"></i> <span id="latencyMs">—</span>ms
           </div>
         </div>
 
-        <!-- WebRTC remote participants (shown when WebRTC mode is active) -->
+        <!-- WebRTC remote participants -->
         <div id="webrtcParticipantsSection" style="display:none;">
-          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em;font-family:var(--fm);">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.06em;">
             <i class="fas fa-users" style="color:var(--primary);margin-right:6px"></i>Remote Participants
           </div>
           <div class="webrtc-grid" id="remoteParticipantsGrid"></div>
@@ -101,9 +101,7 @@
         <div class="analysis-card">
           <h3><i class="fas fa-brain"></i> Current Detection</h3>
           <div class="current-emotion">
-            <div class="emotion-icon" id="emotionIcon">
-              <i class="fas fa-meh"></i>
-            </div>
+            <div class="emotion-icon" id="emotionIcon"><i class="fas fa-meh"></i></div>
             <div class="emotion-details">
               <div class="emotion-name" id="emotionName">Neutral</div>
               <div class="emotion-confidence" id="emotionConfidence">0%</div>
@@ -147,8 +145,8 @@
               <span class="value" id="backendStatus" style="color:var(--danger)">Offline</span>
             </div>
             <div class="info-item">
-              <span class="label">Model</span>
-              <span class="value" style="font-size:11px">MTCNN+ResNet</span>
+              <span class="label">Engine</span>
+              <span class="value" style="font-size:11px">face-api.js</span>
             </div>
           </div>
           <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -161,7 +159,7 @@
           <div class="setting-group">
             <label>Analysis Source</label>
             <select id="analysisSource">
-              <option value="mock">Mock (offline demo)</option>
+              <option value="mock">Client AI (face-api.js)</option>
               <option value="backend">Python Backend</option>
             </select>
           </div>
@@ -173,16 +171,15 @@
           <div class="setting-group">
             <label>Detection Rate</label>
             <select id="detectionRate">
-              <option value="realtime">Real-time (every frame)</option>
+              <option value="realtime">Real-time (200ms)</option>
               <option value="500">Every 500ms</option>
               <option value="1000" selected>Every 1s</option>
-<option value="2000">Every 2s</option>
+              <option value="2000">Every 2s</option>
               <option value="5000">Every 5s</option>
-              <option value="10000" selected>Every 10s</option>
             </select>
           </div>
           <div class="setting-group">
-            <label>Confidence Threshold &nbsp;<span id="thresholdValue" style="color:var(--primary);font-family:var(--fm)">50%</span></label>
+            <label>Confidence Threshold &nbsp;<span id="thresholdValue" style="color:var(--primary);font-weight:700">50%</span></label>
             <input type="range" id="confidenceThreshold" min="0" max="100" value="50">
           </div>
           <div class="setting-group">
@@ -252,8 +249,12 @@
     <span id="toastMessage">Success!</span>
   </div>
 
+  <!-- Scripts: order matters -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script src="scripts/main.js"></script>
+  <script src="scripts/face-engine.js"></script>
   <script src="scripts/live.js"></script>
   <script src="scripts/webrtc.js"></script>
 </body>

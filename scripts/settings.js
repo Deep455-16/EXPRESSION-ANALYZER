@@ -1,18 +1,21 @@
-// ========================================
-// Settings Page - JavaScript
-// ========================================
+/**
+ * settings.js — Settings page management
+ * Uses the `settings` object from main.js for persistence.
+ * Supports: save, load, reset, export data, clear data, camera detection.
+ */
 
 let currentSection = 'general';
 
-// ========================================
-// Initialize Page
-// ========================================
+// ═════════════════════════════════════════════════════════════════════════════
+// INIT
+// ═════════════════════════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
   initializeSettings();
   setupSettingsListeners();
   loadSettings();
   detectSystemInfo();
+  updateStorageInfo();
 });
 
 function initializeSettings() {
@@ -20,290 +23,308 @@ function initializeSettings() {
 }
 
 function setupSettingsListeners() {
-  // Navigation
+  // Section navigation
   document.querySelectorAll('.settings-nav-item').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const section = e.currentTarget.dataset.section;
       showSection(section);
-      
-      // Update active state
-      document.querySelectorAll('.settings-nav-item').forEach(b => {
-        b.classList.remove('active');
-      });
+      document.querySelectorAll('.settings-nav-item').forEach(b => b.classList.remove('active'));
       e.currentTarget.classList.add('active');
     });
   });
-  
+
   // Save and reset buttons
   document.getElementById('saveSettings')?.addEventListener('click', saveSettings);
   document.getElementById('resetSettings')?.addEventListener('click', resetSettings);
-  
+
   // Range sliders
   document.getElementById('minConfSlider')?.addEventListener('input', (e) => {
     document.getElementById('minConfValue').textContent = e.target.value + '%';
   });
-  
   document.getElementById('sensitivitySlider')?.addEventListener('input', (e) => {
     document.getElementById('sensitivityValue').textContent = e.target.value + '%';
   });
-  
+
   // Camera detection
   document.getElementById('detectCameras')?.addEventListener('click', detectCameras);
+
+  // Data management buttons
+  document.getElementById('exportAllDataBtn')?.addEventListener('click', exportAllData);
+  document.getElementById('clearAllDataBtn')?.addEventListener('click', clearAllData);
+
+  // Theme live preview
+  document.getElementById('theme')?.addEventListener('change', () => {
+    // Live preview theme change
+    const theme = document.getElementById('theme').value;
+    document.documentElement.setAttribute('data-theme',
+      theme === 'auto'
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : theme
+    );
+  });
+
+  // Accent color live preview
+  document.getElementById('accentColor')?.addEventListener('input', (e) => {
+    document.documentElement.style.setProperty('--accent', e.target.value);
+  });
 }
 
 function showSection(sectionId) {
   currentSection = sectionId;
-  
-  // Hide all sections
   document.querySelectorAll('.settings-section').forEach(section => {
     section.classList.remove('active');
   });
-  
-  // Show selected section
   const section = document.getElementById(sectionId);
-  if (section) {
-    section.classList.add('active');
-  }
+  if (section) section.classList.add('active');
 }
 
-// ========================================
-// Load Settings
-// ========================================
+
+// ═════════════════════════════════════════════════════════════════════════════
+// LOAD SETTINGS
+// ═════════════════════════════════════════════════════════════════════════════
 
 function loadSettings() {
-  // General
-  document.getElementById('theme').value = settings.get('theme');
-  document.getElementById('accentColor').value = settings.get('accentColor');
-  document.getElementById('language').value = settings.get('language');
-  document.getElementById('dateFormat').value = settings.get('dateFormat');
-  document.getElementById('notifyComplete').checked = settings.get('notifyComplete');
-  document.getElementById('notifyLowConfidence').checked = settings.get('notifyLowConfidence');
-  
-  // Analysis
-  document.getElementById('defaultDetectionRate').value = settings.get('defaultDetectionRate');
-  
+  setVal('theme', settings.get('theme'));
+  setVal('accentColor', settings.get('accentColor'), 'value');
+  setVal('language', settings.get('language'));
+  setVal('dateFormat', settings.get('dateFormat'));
+  setChecked('notifyComplete', settings.get('notifyComplete'));
+  setChecked('notifyLowConfidence', settings.get('notifyLowConfidence'));
+
+  setVal('defaultDetectionRate', settings.get('defaultDetectionRate'));
+
   const minConf = settings.get('minConfidence');
-  document.getElementById('minConfSlider').value = minConf;
-  document.getElementById('minConfValue').textContent = minConf + '%';
-  
+  setVal('minConfSlider', minConf, 'value');
+  const minConfLabel = document.getElementById('minConfValue');
+  if (minConfLabel) minConfLabel.textContent = minConf + '%';
+
   const sensitivity = settings.get('sensitivity');
-  document.getElementById('sensitivitySlider').value = sensitivity;
-  document.getElementById('sensitivityValue').textContent = sensitivity + '%';
-  
-  document.getElementById('autoSave').checked = settings.get('autoSave');
-  document.getElementById('gpuAccel').checked = settings.get('gpuAccel');
-  
-  // Camera
-  document.getElementById('cameraDevice').value = settings.get('cameraDevice');
-  document.getElementById('resolution').value = settings.get('resolution');
-  document.getElementById('fps').value = settings.get('fps');
-  document.getElementById('faceOverlay').checked = settings.get('faceOverlay');
-  document.getElementById('mirrorVideo').checked = settings.get('mirrorVideo');
-  
-  // Export
-  document.getElementById('exportFormat').value = settings.get('exportFormat');
-  document.getElementById('includeTimestamp').checked = settings.get('includeTimestamp');
-  
-  // Privacy
-  document.getElementById('autoClearHistory').checked = settings.get('autoClearHistory');
-  document.getElementById('historyRetention').value = settings.get('historyRetention');
+  setVal('sensitivitySlider', sensitivity, 'value');
+  const sensLabel = document.getElementById('sensitivityValue');
+  if (sensLabel) sensLabel.textContent = sensitivity + '%';
+
+  setChecked('autoSave', settings.get('autoSave'));
+  setChecked('gpuAccel', settings.get('gpuAccel'));
+
+  setVal('cameraDevice', settings.get('cameraDevice'));
+  setVal('resolution', settings.get('resolution'));
+  setVal('fps', settings.get('fps'));
+  setChecked('faceOverlay', settings.get('faceOverlay'));
+  setChecked('mirrorVideo', settings.get('mirrorVideo'));
+
+  setVal('exportFormat', settings.get('exportFormat'));
+  setChecked('includeTimestamp', settings.get('includeTimestamp'));
+
+  setChecked('autoClearHistory', settings.get('autoClearHistory'));
+  setVal('historyRetention', settings.get('historyRetention'));
 }
 
-// ========================================
-// Save Settings
-// ========================================
+function setVal(id, val, prop = 'value') {
+  const el = document.getElementById(id);
+  if (el && val !== undefined) el[prop] = val;
+}
+
+function setChecked(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.checked = !!val;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SAVE SETTINGS
+// ═════════════════════════════════════════════════════════════════════════════
 
 function saveSettings() {
   try {
-    // General
-    settings.set('theme', document.getElementById('theme').value);
-    settings.set('accentColor', document.getElementById('accentColor').value);
-    settings.set('language', document.getElementById('language').value);
-    settings.set('dateFormat', document.getElementById('dateFormat').value);
-    settings.set('notifyComplete', document.getElementById('notifyComplete').checked);
-    settings.set('notifyLowConfidence', document.getElementById('notifyLowConfidence').checked);
-    
-    // Analysis
-    settings.set('defaultDetectionRate', document.getElementById('defaultDetectionRate').value);
-    settings.set('minConfidence', parseInt(document.getElementById('minConfSlider').value));
-    settings.set('sensitivity', parseInt(document.getElementById('sensitivitySlider').value));
-    settings.set('autoSave', document.getElementById('autoSave').checked);
-    settings.set('gpuAccel', document.getElementById('gpuAccel').checked);
-    
-    // Camera
-    settings.set('cameraDevice', document.getElementById('cameraDevice').value);
-    settings.set('resolution', document.getElementById('resolution').value);
-    settings.set('fps', document.getElementById('fps').value);
-    settings.set('faceOverlay', document.getElementById('faceOverlay').checked);
-    settings.set('mirrorVideo', document.getElementById('mirrorVideo').checked);
-    
-    // Export
-    settings.set('exportFormat', document.getElementById('exportFormat').value);
-    settings.set('includeTimestamp', document.getElementById('includeTimestamp').checked);
-    
-    // Privacy
-    settings.set('autoClearHistory', document.getElementById('autoClearHistory').checked);
-    settings.set('historyRetention', document.getElementById('historyRetention').value);
-    
-    // Save to storage
+    settings.set('theme', getVal('theme'));
+    settings.set('accentColor', document.getElementById('accentColor')?.value || '#6ee7b7');
+    settings.set('language', getVal('language'));
+    settings.set('dateFormat', getVal('dateFormat'));
+    settings.set('notifyComplete', getChecked('notifyComplete'));
+    settings.set('notifyLowConfidence', getChecked('notifyLowConfidence'));
+
+    settings.set('defaultDetectionRate', getVal('defaultDetectionRate'));
+    settings.set('minConfidence', parseInt(getVal('minConfSlider')) || 50);
+    settings.set('sensitivity', parseInt(getVal('sensitivitySlider')) || 70);
+    settings.set('autoSave', getChecked('autoSave'));
+    settings.set('gpuAccel', getChecked('gpuAccel'));
+
+    settings.set('cameraDevice', getVal('cameraDevice'));
+    settings.set('resolution', getVal('resolution'));
+    settings.set('fps', getVal('fps'));
+    settings.set('faceOverlay', getChecked('faceOverlay'));
+    settings.set('mirrorVideo', getChecked('mirrorVideo'));
+
+    settings.set('exportFormat', getVal('exportFormat'));
+    settings.set('includeTimestamp', getChecked('includeTimestamp'));
+
+    settings.set('autoClearHistory', getChecked('autoClearHistory'));
+    settings.set('historyRetention', getVal('historyRetention'));
+
     settings.save();
-    
-    // Apply theme
-    applyTheme();
-    
-    // Show success message
+    applyGlobalTheme();
     showToast('Settings saved successfully!');
-    
   } catch (error) {
     console.error('Error saving settings:', error);
-    showToast('Error saving settings');
+    showToast('Error saving settings', 'error');
   }
+}
+
+function getVal(id) {
+  return document.getElementById(id)?.value || '';
+}
+
+function getChecked(id) {
+  return document.getElementById(id)?.checked || false;
 }
 
 function resetSettings() {
   if (!confirm('Reset all settings to defaults?')) return;
-  
   settings.reset();
   loadSettings();
-  applyTheme();
+  applyGlobalTheme();
   showToast('Settings reset to defaults');
 }
 
-// ========================================
-// Apply Settings
-// ========================================
 
-function applyTheme() {
-  const theme = settings.get('theme');
-  const accentColor = settings.get('accentColor');
-  
-  // Apply theme class to body
-  document.body.className = theme + '-theme';
-  
-  // Apply accent color
-  document.documentElement.style.setProperty('--accent-primary', accentColor);
-  
-  // Note: Full theme implementation would require additional CSS
-}
-
-// ========================================
-// Camera Detection
-// ========================================
+// ═════════════════════════════════════════════════════════════════════════════
+// CAMERA DETECTION
+// ═════════════════════════════════════════════════════════════════════════════
 
 async function detectCameras() {
   try {
+    // Request permissions first
+    await navigator.mediaDevices.getUserMedia({ video: true }).then(s => s.getTracks().forEach(t => t.stop()));
     const devices = await navigator.mediaDevices.enumerateDevices();
     const cameras = devices.filter(d => d.kind === 'videoinput');
-    
+
     const select = document.getElementById('cameraDevice');
     if (!select) return;
-    
-    // Clear existing options
+
     select.innerHTML = '<option value="default">Default Camera</option>';
-    
-    // Add detected cameras
     cameras.forEach((camera, i) => {
       const option = document.createElement('option');
       option.value = camera.deviceId;
       option.textContent = camera.label || `Camera ${i + 1}`;
       select.appendChild(option);
     });
-    
-    if (cameras.length === 0) {
-      showToast('No cameras detected');
-    } else {
-      showToast(`Found ${cameras.length} camera(s)`);
+
+    // Restore saved selection
+    const saved = settings.get('cameraDevice');
+    if (saved && select.querySelector(`option[value="${saved}"]`)) {
+      select.value = saved;
     }
-    
+
+    showToast(cameras.length === 0 ? 'No cameras detected' : `Found ${cameras.length} camera(s)`);
   } catch (error) {
     console.error('Error detecting cameras:', error);
-    showToast('Error detecting cameras');
+    showToast('Camera permission denied', 'error');
   }
 }
 
-// ========================================
-// System Information
-// ========================================
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SYSTEM INFORMATION
+// ═════════════════════════════════════════════════════════════════════════════
 
 function detectSystemInfo() {
-  // Browser info
   const browserInfo = document.getElementById('browserInfo');
   if (browserInfo) {
     const ua = navigator.userAgent;
     let browser = 'Unknown';
-    
-    if (ua.indexOf('Chrome') > -1) browser = 'Chrome';
-    else if (ua.indexOf('Safari') > -1) browser = 'Safari';
+    if (ua.indexOf('Chrome') > -1 && ua.indexOf('Edg') === -1) browser = 'Chrome';
+    else if (ua.indexOf('Edg') > -1) browser = 'Edge';
+    else if (ua.indexOf('Safari') > -1 && ua.indexOf('Chrome') === -1) browser = 'Safari';
     else if (ua.indexOf('Firefox') > -1) browser = 'Firefox';
-    else if (ua.indexOf('Edge') > -1) browser = 'Edge';
-    
     browserInfo.textContent = browser;
   }
-  
-  // Platform info
+
   const platformInfo = document.getElementById('platformInfo');
   if (platformInfo) {
-    platformInfo.textContent = navigator.platform || 'Unknown';
+    platformInfo.textContent = navigator.platform || navigator.userAgentData?.platform || 'Unknown';
   }
-  
-  // WebRTC support
+
   const webrtcSupport = document.getElementById('webrtcSupport');
   if (webrtcSupport) {
-    const hasWebRTC = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-    webrtcSupport.innerHTML = hasWebRTC ? 
-      '<span style="color: var(--success);"><i class="fas fa-check-circle"></i> Supported</span>' :
-      '<span style="color: var(--danger);"><i class="fas fa-times-circle"></i> Not Supported</span>';
+    const hasWebRTC = !!(window.RTCPeerConnection && navigator.mediaDevices?.getUserMedia);
+    webrtcSupport.innerHTML = hasWebRTC
+      ? '<span style="color: var(--success);"><i class="fas fa-check-circle"></i> Supported</span>'
+      : '<span style="color: var(--danger);"><i class="fas fa-times-circle"></i> Not Supported</span>';
   }
-  
-  // WebGL support
+
   const webglSupport = document.getElementById('webglSupport');
   if (webglSupport) {
     const canvas = document.createElement('canvas');
-    const hasWebGL = !!(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
-    webglSupport.innerHTML = hasWebGL ? 
-      '<span style="color: var(--success);"><i class="fas fa-check-circle"></i> Supported</span>' :
-      '<span style="color: var(--danger);"><i class="fas fa-times-circle"></i> Not Supported</span>';
+    const hasWebGL = !!(canvas.getContext('webgl2') || canvas.getContext('webgl'));
+    webglSupport.innerHTML = hasWebGL
+      ? '<span style="color: var(--success);"><i class="fas fa-check-circle"></i> Supported</span>'
+      : '<span style="color: var(--danger);"><i class="fas fa-times-circle"></i> Not Supported</span>';
   }
 }
 
-// ========================================
-// Data Management
-// ========================================
 
-function clearAllData() {
-  if (!confirm('Clear all application data? This cannot be undone.')) return;
-  
-  storage.clear();
-  showToast('All data cleared');
-  
-  // Reload page
-  setTimeout(() => {
-    window.location.reload();
-  }, 1000);
+// ═════════════════════════════════════════════════════════════════════════════
+// DATA MANAGEMENT
+// ═════════════════════════════════════════════════════════════════════════════
+
+async function updateStorageInfo() {
+  try {
+    const est = await EmotiDB.getStorageEstimate();
+    const usageMB = (est.usage / (1024 * 1024)).toFixed(1);
+    const quotaMB = Math.min(est.quota / (1024 * 1024), 50).toFixed(0);
+
+    const fill = document.querySelector('.storage-fill');
+    const label = document.querySelector('.storage-info span');
+    if (fill) {
+      const pct = Math.min((est.usage / Math.max(est.quota, 1)) * 100, 100);
+      fill.style.width = `${pct}%`;
+      fill.style.background = pct > 80 ? 'var(--danger)' : pct > 50 ? 'var(--warning)' : 'var(--primary)';
+    }
+    if (label) label.textContent = `${usageMB} MB / ${quotaMB} MB`;
+  } catch { /* ignore */ }
 }
 
-function exportAllData() {
-  const allData = {
-    settings: settings.settings,
-    sessions: storage.load('sessions') || [],
-    batches: storage.load('batches') || [],
-    exportedAt: new Date().toISOString()
-  };
-  
-  exportToJSON(allData, `expression_analyser_backup_${Date.now()}.json`);
-  showToast('Data exported successfully');
+async function clearAllData() {
+  if (!confirm('Clear ALL application data?\n\nThis will delete:\n• All session history\n• All upload results\n• All saved preferences\n\nThis cannot be undone.')) return;
+
+  try {
+    await EmotiDB.clearAll();
+    storage.clear();
+    settings.reset();
+    showToast('All data cleared');
+    setTimeout(() => window.location.reload(), 1000);
+  } catch (err) {
+    console.error('Clear failed:', err);
+    showToast('Error clearing data', 'error');
+  }
 }
 
-// Attach to buttons
-document.addEventListener('DOMContentLoaded', () => {
-  const clearDataBtn = document.querySelector('button.btn-danger');
-  const exportDataBtn = document.querySelector('button.btn-secondary');
-  
-  if (clearDataBtn && clearDataBtn.textContent.includes('Clear All Data')) {
-    clearDataBtn.addEventListener('click', clearAllData);
+async function exportAllData() {
+  try {
+    const [sessions, results, uploads] = await Promise.all([
+      EmotiDB.getSessions(1000),
+      EmotiDB.getAllResults(),
+      EmotiDB.getUploads(1000),
+    ]);
+
+    const allData = {
+      exported_at: new Date().toISOString(),
+      version: '1.0.0',
+      settings: settings.settings,
+      sessions: sessions,
+      analysis_results: results,
+      uploads: uploads,
+      stats: {
+        total_sessions: sessions.length,
+        total_results: results.length,
+        total_uploads: uploads.length,
+      },
+    };
+
+    exportToJSON(allData, `expression_analyser_backup_${Date.now()}.json`);
+    showToast('All data exported ✓');
+  } catch (err) {
+    console.error('Export failed:', err);
+    showToast('Export failed', 'error');
   }
-  
-  if (exportDataBtn && exportDataBtn.textContent.includes('Export All Data')) {
-    exportDataBtn.addEventListener('click', exportAllData);
-  }
-});
+}
