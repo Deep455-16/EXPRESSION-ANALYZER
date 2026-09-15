@@ -84,12 +84,36 @@ async function loadDashboard() {
     }
   }
 
-  // Render everything
-  renderSummaryCards(localStats, backendStats);
-  renderCharts(localStats, backendStats);
-  renderSessionsTable(allSessions);
+  // Apply default filter to render everything
+  applyTimeFilter();
 
   showToast('Dashboard updated ✓');
+}
+
+function applyTimeFilter() {
+  const el = document.getElementById('timeRange');
+  const val = el ? el.value : 'week';
+  
+  const now = Date.now();
+  const cutoffs = { today: 86400000, week: 604800000, month: 2592000000, all: Infinity };
+  const ms = cutoffs[val] || Infinity;
+
+  // Filter sessions
+  const filteredSessions = allSessions.filter(s => {
+    if (!s.start_time) return true;
+    return (now - new Date(s.start_time).getTime()) <= ms;
+  });
+
+  // Filter results
+  const filteredResults = allResults.filter(r => {
+    if (!r.timestamp) return true;
+    return (now - (r.timestamp * 1000)) <= ms;
+  });
+
+  currentPage = 1;
+  renderSummaryCards(filteredSessions, filteredResults);
+  renderCharts(filteredSessions, filteredResults);
+  renderSessionsTable(filteredSessions);
 }
 
 
@@ -97,30 +121,35 @@ async function loadDashboard() {
 // SUMMARY CARDS (KPIs)
 // ═════════════════════════════════════════════════════════════════════════════
 
-function renderSummaryCards(localStats, backendStats) {
-  const totalSessions = Math.max(allSessions.length, localStats.totalSessions || 0);
+function renderSummaryCards(sessions, results) {
+  // Total Sessions
+  const totalSessions = sessions.length;
   setEl('totalSessions', totalSessions || '—');
 
-  const backendFrames = backendStats?.total_frames || 0;
-  const totalFrames = Math.max(backendFrames, localStats.totalFrames || 0);
+  // Total Frames
+  const totalFrames = results.length || sessions.reduce((acc, s) => acc + (s.total_frames || s.frame_count || 0), 0);
   setEl('totalFrames', totalFrames > 0 ? totalFrames.toLocaleString() : '—');
 
-  let avgConf = 0;
-  if (backendStats?.stats?.length) {
-    avgConf = Math.round(backendStats.stats.reduce((a, r) => a + r.avg_confidence, 0) / backendStats.stats.length * 100);
-  } else if (localStats.avgConfidence > 0) {
-    avgConf = Math.round(localStats.avgConfidence * 100);
-  }
-  setEl('avgConfidence', avgConf > 0 ? `${avgConf}%` : '—');
-
-  let accurateCount = 0, totalCount = 0;
-  allResults.forEach(r => {
+  // Average Confidence
+  let confSum = 0;
+  let confCount = 0;
+  results.forEach(r => {
     (r.face_emotions || []).forEach(fe => {
-      totalCount++;
-      if (fe.confidence > 0.5) accurateCount++;
+      confSum += fe.confidence || 0;
+      confCount++;
     });
   });
-  const accuracy = totalCount > 0 ? Math.round((accurateCount / totalCount) * 100) : 0;
+  const avgConf = confCount > 0 ? Math.round((confSum / confCount) * 100) : 0;
+  setEl('avgConfidence', avgConf > 0 ? `${avgConf}%` : '—');
+
+  // Detection Accuracy (% of frames where top emotion > 50% confidence)
+  let accurateCount = 0;
+  results.forEach(r => {
+    (r.face_emotions || []).forEach(fe => {
+      if ((fe.confidence || 0) > 0.5) accurateCount++;
+    });
+  });
+  const accuracy = confCount > 0 ? Math.round((accurateCount / confCount) * 100) : 0;
   setEl('avgDuration', accuracy > 0 ? `${accuracy}%` : '—');
 
   updateChangeIndicator();
@@ -157,48 +186,52 @@ function setEl(id, val) {
 // CHARTS
 // ═════════════════════════════════════════════════════════════════════════════
 
-function renderCharts(localStats, backendStats) {
-  const hasBackend = backendStats?.stats?.length > 0;
+function renderCharts(sessions, results) {
+  if (results.length > 0 || sessions.length > 0) {
+    const emotionCounts = {};
+    const emotionConfs = {};
+    const emotionConfCounts = {};
 
-  if (hasBackend) {
-    const rows = backendStats.stats;
-    buildConfChart(
-      rows.map(r => EMOTION_LABELS_MAP[r.emotion] || r.emotion),
-      rows.map(r => Math.round(r.avg_confidence * 100)),
-      rows.map(r => EMOTION_COLORS[r.emotion] || '#94a3b8')
-    );
-    buildDistChart(
-      rows.map(r => EMOTION_LABELS_MAP[r.emotion] || r.emotion),
-      rows.map(r => r.count),
-      rows.map(r => EMOTION_COLORS[r.emotion] || '#94a3b8')
-    );
-  } else if (Object.keys(localStats.emotionCounts || {}).length > 0) {
-    const entries = Object.entries(localStats.emotionCounts).sort((a, b) => b[1] - a[1]);
-    const labels = entries.map(([em]) => EMOTION_LABELS_MAP[em] || em);
-    const counts = entries.map(([, c]) => c);
-    const colors = entries.map(([em]) => EMOTION_COLORS[em] || '#94a3b8');
-
-    const emotionConfs = {}, emotionConfCounts = {};
-    allResults.forEach(r => {
+    results.forEach(r => {
       (r.face_emotions || []).forEach(fe => {
-        emotionConfs[fe.emotion] = (emotionConfs[fe.emotion] || 0) + (fe.confidence || 0);
-        emotionConfCounts[fe.emotion] = (emotionConfCounts[fe.emotion] || 0) + 1;
+        const em = fe.emotion;
+        emotionCounts[em] = (emotionCounts[em] || 0) + 1;
+        emotionConfs[em] = (emotionConfs[em] || 0) + (fe.confidence || 0);
+        emotionConfCounts[em] = (emotionConfCounts[em] || 0) + 1;
       });
     });
-    const confs = entries.map(([em]) => {
-      const tot = emotionConfs[em] || 0;
-      const cnt = emotionConfCounts[em] || 1;
-      return Math.round((tot / cnt) * 100);
-    });
 
-    buildConfChart(labels, confs, colors);
-    buildDistChart(labels, counts, colors);
+    // If no per-frame results but we have sessions, fallback to session dominant emotions
+    if (Object.keys(emotionCounts).length === 0) {
+      sessions.forEach(s => {
+        const em = s.dominant_emotion;
+        if (em) emotionCounts[em] = (emotionCounts[em] || 0) + 1;
+      });
+    }
+
+    const entries = Object.entries(emotionCounts).sort((a, b) => b[1] - a[1]);
+    if (entries.length > 0) {
+      const labels = entries.map(([em]) => EMOTION_LABELS_MAP[em] || em);
+      const counts = entries.map(([, c]) => c);
+      const colors = entries.map(([em]) => EMOTION_COLORS[em] || '#94a3b8');
+
+      const confs = entries.map(([em]) => {
+        const tot = emotionConfs[em] || 0;
+        const cnt = emotionConfCounts[em] || 1;
+        return Math.round((tot / cnt) * 100);
+      });
+
+      buildConfChart(labels, confs, colors);
+      buildDistChart(labels, counts, colors);
+    } else {
+      renderPlaceholderCharts();
+    }
   } else {
     renderPlaceholderCharts();
   }
 
-  // Emotion Trends — always build from IndexedDB allResults first
-  buildTrendChart(allSessions, allResults);
+  // Emotion Trends
+  buildTrendChart(sessions, results);
 }
 
 /**
@@ -660,15 +693,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('timeRange')?.addEventListener('change', e => {
-    const now = Date.now();
-    const cutoffs = { today: 86400000, week: 604800000, month: 2592000000, all: Infinity };
-    const ms = cutoffs[e.target.value] || Infinity;
-    const filtered = allSessions.filter(s => {
-      if (!s.start_time) return true;
-      return (now - new Date(s.start_time).getTime()) <= ms;
-    });
-    currentPage = 1;
-    renderSessionsTable(filtered);
+    applyTimeFilter();
   });
 
   // Chart Line / Area toggle for the Emotion Trends chart
