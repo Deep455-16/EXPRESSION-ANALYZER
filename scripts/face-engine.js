@@ -166,8 +166,8 @@ const FaceEngine = {
     try {
       const detections = await faceapi
         .detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({
-          inputSize:       608,   // larger → better accuracy on stills
-          scoreThreshold:  0.35,  // slightly lower → catch partial faces
+          inputSize:       800,   // increased for distant faces in still images
+          scoreThreshold:  0.25,  // lower threshold to catch small/partial faces
         }))
         .withFaceLandmarks()
         .withFaceExpressions();
@@ -378,8 +378,8 @@ const FaceEngine = {
     try {
       const detections = await faceapi
         .detectAllFaces(source, new faceapi.TinyFaceDetectorOptions({
-          inputSize: 416,
-          scoreThreshold: 0.4,
+          inputSize: 608,   // Increased from 416 to detect distant/small faces
+          scoreThreshold: 0.3, // Lowered from 0.4 to catch smaller faces
         }))
         .withFaceLandmarks().withFaceExpressions();
 

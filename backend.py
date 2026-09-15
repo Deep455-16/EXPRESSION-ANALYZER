@@ -297,19 +297,20 @@ def detect_faces_dnn(frame):
     if dnn_net is None:
         return []
     h, w = frame.shape[:2]
-    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0, (300, 300), (104.0, 177.0, 123.0))
+    # Use 600x600 instead of 300x300 to preserve details of distant faces (3-4 meters away)
+    blob = cv2.dnn.blobFromImage(cv2.resize(frame, (600, 600)), 1.0, (600, 600), (104.0, 177.0, 123.0))
     dnn_net.setInput(blob)
     detections = dnn_net.forward()
     faces = []
     for i in range(detections.shape[2]):
         confidence = detections[0, 0, i, 2]
-        if confidence > 0.5:
+        if confidence > 0.3:  # Lowered from 0.5 for distant faces
             box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
             x1, y1, x2, y2 = box.astype("int")
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
             crop = frame[y1:y2, x1:x2]
-            if crop.size == 0:
+            if crop.size == 0 or x2 <= x1 or y2 <= y1:
                 continue
             faces.append({"bbox": [x1, y1, x2-x1, y2-y1],
                           "method": "dnn", "confidence": float(confidence),
@@ -319,7 +320,7 @@ def detect_faces_dnn(frame):
 
 def detect_faces_haar(gray, frame):
     rects = haar_face.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(36,36)
+        gray, scaleFactor=1.05, minNeighbors=4, minSize=(20, 20)
     )
     return [{"bbox":[int(x),int(y),int(w),int(h)],
               "method":"haar","confidence":0.88,
@@ -338,14 +339,14 @@ def detect_faces_yolo(frame):
                 continue
             x1,y1,x2,y2 = map(int, box.xyxy[0])
             # YOLO class-0 is "person" not a face detector.
-            # Use top 60% of box height (was 42%) to include mouth/chin,
-            # and inset horizontally by 15% on each side to exclude shoulders.
+            # For distant people (3-4m), the bounding box is full body.
+            # Use top 25% of box height and inset 25% on each side to approximate the head.
             box_w  = x2 - x1
             box_h  = y2 - y1
-            inset  = int(box_w * 0.15)
+            inset  = int(box_w * 0.25)
             fx1    = x1 + inset
             fx2    = x2 - inset
-            face_h = int(box_h * 0.60)
+            face_h = int(box_h * 0.25)
             fy2    = min(y1 + face_h, y2)
             crop   = frame[y1:fy2, fx1:fx2]
             if crop.size == 0:
