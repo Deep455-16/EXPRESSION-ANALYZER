@@ -1,96 +1,220 @@
+<div align="center">
+
 # 🎭 Expression Analyzer
 
-A real-time, multi-participant facial expression analysis platform for meetings and video sessions — built with HTML, CSS, JavaScript, and Python.
+**Real-time, multi-participant facial expression analysis for online meetings.**
+Runs fully in your browser, with an optional Python backend for higher accuracy.
 
-🔗 **Live demo:** https://deep455-16.github.io/EXPRESSION-ANALYZER/
+[![Live Demo](https://img.shields.io/badge/Live_Demo-open-6366f1?style=for-the-badge)](https://deep455-16.github.io/EXPRESSION-ANALYZER/)
+![JavaScript](https://img.shields.io/badge/JavaScript-face--api.js-f7df1e?style=flat-square&logo=javascript&logoColor=black)
+![Python](https://img.shields.io/badge/Python-Flask-3776ab?style=flat-square&logo=python&logoColor=white)
+![YOLOv8](https://img.shields.io/badge/YOLOv8n-detection-00b894?style=flat-square)
+![DeepFace](https://img.shields.io/badge/DeepFace-emotion-8b5cf6?style=flat-square)
+![MongoDB](https://img.shields.io/badge/MongoDB-optional-47a248?style=flat-square&logo=mongodb&logoColor=white)
+![Privacy](https://img.shields.io/badge/Privacy-no_frames_stored-16a34a?style=flat-square)
+
+[Features](#-features) · [Architecture](#-architecture-at-a-glance) · [Quick Start](#-quick-start) · [Calibration](#-calibrated-confidence-scores) · [Privacy](#-privacy-and-security) · [Docs](#-documentation)
+
+</div>
 
 ---
 
-## 🚀 How to Start
+## 💡 Why this exists
 
-### Option 1: Using Python (Recommended)
+Online meetings hide emotional signals. This tool reads facial expressions from each participant's video, turns them into live engagement analytics, and keeps the raw faces private while doing it.
+
+| | |
+|---|---|
+| 🎯 **Realistic scores** | Confidence is calibrated, so a smile is never reported as `100%` with everything else at `0%`. |
+| 🔒 **Private by default** | In browser-only mode, no frame ever leaves your device. |
+| 🧩 **Works anywhere** | Open `index.html` and it works. Add the backend later for more accuracy. |
+| 👥 **Multi-participant** | Each peer's stream is tracked and smoothed independently. |
+
+---
+
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🎥 Live Analysis
+- Real-time webcam emotion detection
+- **Multi-participant** support over WebRTC
+- **EMA temporal smoothing** per participant, so labels stop flickering
+- Face-box overlay with label and confidence
+- Session summary on stop: dominant emotion, frame count, duration
+
+</td>
+<td width="50%" valign="top">
+
+### 📤 Upload and File Analysis
+- Drag-and-drop **images and videos**
+- Videos sampled at intervals, then aggregated
+- Queue-based processing with per-item status
+- Annotated output with boxes and labels
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 📊 Dashboard
+- Merges local **IndexedDB** and backend **MongoDB** history
+- KPI cards: sessions, frames, average confidence, accuracy
+- **Emotion trend timeline** across a session
+- Export to **CSV or JSON**
+
+</td>
+<td valign="top">
+
+### ⚙️ Settings
+- **General**: theme, accent colour, language, notifications
+- **Analysis**: sampling rate, confidence threshold, sensitivity
+- **Camera**: device, resolution, FPS, mirror, overlay
+- **Export** and **Privacy** (auto-clear, retention)
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔀 Dual Analysis Engine
+- **Client**: face-api.js in the browser, offline-capable
+- **Backend**: YOLOv8n and DeepFace over Flask
+- Auto-prefers the backend via `/health`, falls back to client, then to a safe mock
+- Every result carries a **source badge** (`backend` / `client` / `mock`)
+
+</td>
+<td valign="top">
+
+### 💾 Data and Persistence
+- **IndexedDB (`EmotiDB`)** for local sessions
+- **MongoDB Atlas** for backend history (scores only)
+- Dashboard works with no backend running
+- No facial imagery is persisted anywhere
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🏗 Architecture at a Glance
+
+<div align="center">
+<img src="docs/images/architecture.png" alt="Hybrid architecture diagram" width="640">
+</div>
+
+Both paths return the **same JSON shape**, so the UI never needs to know which one produced a result. It only reads the `source` and `method` tags to show a badge.
+
+<details>
+<summary><b>📈 Single-frame request flow (backend path)</b></summary>
+<br>
+<div align="center">
+<img src="docs/images/sequence.png" alt="Sequence diagram of one frame through the backend" width="860">
+</div>
+</details>
+
+### Models used
+
+| Stage | Client path | Backend path |
+|---|---|---|
+| Detection | TinyFaceDetector (face-api.js) | YOLOv8n person detector, Haar Cascade fallback |
+| Face region | Detector box | Head crop: top 60% of box height, 15% side inset |
+| Emotion | faceExpressionNet | DeepFace FER CNN |
+| Output | 7-class softmax | 7-class softmax |
+
+Full detail lives in **[ARCHITECTURE.md](ARCHITECTURE.md)**.
+
+---
+
+## 🎯 Calibrated Confidence Scores
+
+Both emotion models are softmax classifiers trained on hard labels, which makes them overconfident. A single smile can come out as `happy 99.6%` with every other class near zero. Scores here go through **temperature scaling plus a probability floor** before display. The ranking never changes, so the dominant emotion is always the one the model chose. Only the spread becomes realistic.
+
+<div align="center">
+<img src="docs/images/calibration.png" alt="Before and after score calibration" width="900">
+</div>
+
+1. Normalise raw probabilities.
+2. Raise each to `1/T` (temperature scaling, a monotonic transform).
+3. Renormalise, then apply a small floor so nothing shows a flat `0%`.
+4. Round for display.
+
+> **Tuning:** `T = 2.0` is a mild default. For very saturated outputs, `T = 3.0` spreads them further. An offline script checks calibration against the bundled FER2013 test set, so you can pick `T` from data.
+
+The face crop was also corrected to keep the **mouth and chin in frame**, since that region matters most for telling happy, neutral and disgusted apart.
+
+---
+
+## 🚀 Quick Start
+
+<table>
+<tr><td>
+
+**Python**
 ```bash
 python3 -m http.server 8000
 ```
-Then open `http://localhost:8000`
 
-### Option 2: Using Node.js
+</td><td>
+
+**Node.js**
 ```bash
 npx http-server -p 8000
 ```
-Then open `http://localhost:8000`
 
-### Option 3: Direct Open
-Double-click `index.html` to open it in your browser (some features, like backend-assisted analysis, need a server to work).
+</td><td>
 
-### Optional: Backend (for higher-accuracy analysis + persistence)
+**Direct**
+Double-click `index.html`
+
+</td></tr>
+</table>
+
+Then open `http://localhost:8000`.
+
+### Optional: enable the backend
+
 ```bash
 pip install -r requirements.txt
+cp .env.example .env          # set MONGO_URI (optional)
 python3 backend.py
 ```
-The frontend automatically detects and prefers the backend when it's reachable, and falls back to fully client-side analysis when it isn't.
+
+The frontend detects the backend automatically and falls back to client-side analysis if it is unreachable.
+
+**Requirements:** a modern browser, a webcam for live mode, and Python 3.8+ only if you use the backend.
 
 ---
 
-## 🧠 Core Features
+<!--
+📸 SCREENSHOTS
+Capture your running app and save the images into docs/images/, then
+delete these comment markers to show them:
 
-### 🎥 Live Analysis (`live.html`)
-- Real-time emotion detection from your webcam, sampled continuously while the session runs.
-- **Multi-participant support** via WebRTC — each connected peer's video stream is analyzed independently, with per-participant emotion state tracked live.
-- **Temporal smoothing** — an exponential moving average over recent frames per participant keeps the on-screen emotion from flickering between adjacent expressions frame-to-frame.
-- Live face-box overlay with emotion label and confidence, drawn directly on the video feed.
-- Session start/stop controls, with the session automatically finalized and summarized (dominant emotion, frame count, duration) when you stop.
+## 🖼 Screenshots
+| Live Analysis | Dashboard |
+|---|---|
+| ![Live](docs/images/screenshot-live.png) | ![Dashboard](docs/images/screenshot-dashboard.png) |
+| Upload | Settings |
+| ![Upload](docs/images/screenshot-upload.png) | ![Settings](docs/images/screenshot-settings.png) |
+-->
 
-### 📤 Upload & File Analysis (`upload.html`)
-- Drag-and-drop or file-picker upload for both **images and videos**.
-- Video files are sampled at intervals (not analyzed frame-by-frame) and aggregated into an overall dominant emotion + per-emotion distribution across sampled frames.
-- Queue-based processing — upload and track multiple files at once, with per-item status.
-- Annotated preview output: uploaded images/frames are returned with bounding boxes and emotion labels drawn on top.
+## 🔒 Privacy and Security
 
-### 📊 Dashboard (`dashboard.html`)
-- Session history pulled from both **local IndexedDB storage** and, when available, the **backend/MongoDB history**, merged into one view.
-- KPI summary cards: total sessions, total frames analyzed, average confidence, and dominant-emotion accuracy (share of frames where the top emotion clears 50% confidence).
-- Per-session breakdowns and an **emotion trend timeline** showing how the emotional mix shifted over the course of a session, not just a single end-of-call number.
-- Export session data to **CSV or JSON** for external reporting.
+<div align="center">
+<img src="docs/images/security.png" alt="Data flow and trust boundaries" width="760">
+</div>
 
-### ⚙️ Settings (`settings.html`)
-Grouped, persisted (via `localStorage`) configuration covering:
-- **General** — theme (dark/light), accent color, language, date format, completion/low-confidence notifications.
-- **Analysis** — detection sampling rate, minimum confidence threshold, sensitivity, autosave, GPU acceleration toggle.
-- **Camera** — device selection, resolution, FPS, face-overlay toggle, mirrored video.
-- **Export** — default export format, timestamp inclusion.
-- **Privacy** — automatic history clearing and configurable retention period.
+- **Browser-only mode:** analysis is on-device with no network call carrying a frame.
+- **Backend mode (opt-in):** frames are decoded in memory, used once, and discarded. Only scores, boxes and timestamps are stored.
+- **No imagery in the database:** the annotated preview is stripped before anything is persisted.
+- **Secrets:** `MONGO_URI` comes from the environment, and `.env` is git-ignored.
+- **You control retention:** auto-clear and retention window live in Settings.
 
-### 🔀 Dual Analysis Engine (client + backend)
-- **Client-side (always available, offline-capable):** face detection and emotion recognition run entirely in-browser via face-api.js — no data ever leaves the device on this path.
-- **Backend (optional, higher accuracy):** a Flask server runs YOLOv8n-based detection and DeepFace-based emotion recognition, with results persisted to MongoDB for cross-session history.
-- The app automatically prefers the backend when reachable (`/health` check) and transparently falls back to the client-side model — and finally to a safe mock result — so analysis never hard-fails.
-- Every result is tagged with its **source** (`backend` / `client` / `mock`) and **detection method**, so the UI can show users exactly what produced a given number instead of presenting every result as equally authoritative.
-
-### 🎯 Calibrated Confidence Scores
-- Raw model outputs from both engines are **temperature-scaled and floored** before display, so results look like `happy 62% · neutral 15% · surprised 10% · ...` — a realistic spread reflecting genuine model uncertainty — instead of a hard, misleading `100%` / `0%` split. The dominant emotion reported is never changed by this step, only the displayed confidence spread.
-- The face-crop region used before emotion prediction is sized and centered to keep the **mouth and chin in frame**, since that region is critical for distinguishing happy/neutral/disgusted.
-- An offline calibration script validates this against the bundled FER2013 test set so the smoothing behavior is chosen from data rather than guesswork.
-
-### 💾 Data & Persistence
-- **IndexedDB (`EmotiDB`)** — always-available local storage for sessions and results, so the dashboard works even with no backend running.
-- **MongoDB Atlas** (backend only) — session upsert/finalization, per-frame history, participant tracking, and the FER2013 reference distribution used to seed mock results.
-- **Export utilities** — download any session's data as CSV or JSON.
-
-### 🔒 Privacy
-- Client-side mode processes everything locally in your browser; nothing is sent anywhere.
-- The optional backend only processes frames you explicitly send to it — no third-party services are involved.
-- Configurable auto-clear and retention settings for stored history.
-- Works fully offline (client-side mode) after the initial model load.
-
----
-
-## 🛠 Requirements
-
-- Modern web browser (Chrome, Firefox, Edge, Safari)
-- Webcam (for live analysis)
-- JavaScript enabled
-- Python 3.8+ (optional, for the higher-accuracy backend + MongoDB persistence)
+Before exposing the backend beyond localhost, read the hardening checklist in **[SECURITY.md](SECURITY.md)**. It covers CORS, authentication and TLS.
 
 ---
 
@@ -98,41 +222,41 @@ Grouped, persisted (via `localStorage`) configuration covering:
 
 ```
 EXPRESSION-ANALYZER/
-├── index.html               # Home page
-├── live.html                 # Live multi-participant analysis
-├── upload.html                # File upload & batch analysis
-├── dashboard.html              # Analytics dashboard + trend charts
-├── settings.html                # Settings
-├── backend.py                  # Flask backend — detection, DeepFace scoring,
-│                                #   score smoothing, MongoDB persistence
-├── backend_connectivity.py      # MongoDB connection + FER2013 dataset loading
+├── index.html · live.html · upload.html · dashboard.html · settings.html
+├── backend.py                 Flask API: detection, DeepFace, calibration, MongoDB
+├── backend_connectivity.py    MongoDB connection and FER2013 loading
 ├── requirements.txt
 ├── scripts/
-│   ├── face-engine.js          # Client-side face-api.js analysis + score smoothing
-│   ├── live.js                  # Live webcam loop + per-participant temporal smoothing
-│   ├── webrtc.js                  # Multi-participant peer connection handling
-│   ├── upload.js                   # File upload & queue processing
-│   ├── dashboard.js                 # Session stats + emotion trend rendering
-│   ├── settings.js                   # Settings UI + persistence
-│   └── main.js                        # Shared utilities: settings manager, IndexedDB, export
-├── styles/
-│   └── main.css
-└── dataset/fer2013/                    # Reference dataset for mock weighting + calibration
+│   ├── face-engine.js         face-api.js pipeline and score calibration
+│   ├── live.js                live loop and per-participant EMA
+│   ├── webrtc.js              multi-participant peer streams
+│   ├── upload.js              file upload and queue
+│   ├── dashboard.js           stats and trend rendering
+│   ├── settings.js            settings UI and persistence
+│   └── main.js                settings manager, IndexedDB, export helpers
+├── styles/main.css
+├── dataset/fer2013/           reference data for mock weighting and calibration
+└── docs/images/               diagrams used in the docs
 ```
 
 ---
 
-## 📊 How Confidence Scores Work
+## 📚 Documentation
 
-1. The face/emotion model produces raw softmax probabilities per emotion.
-2. Those probabilities are **temperature-scaled** (a monotonic transform — the top emotion never changes) to undo the model's native overconfidence.
-3. A small floor is applied so no emotion ever displays as a flat, misleading `0%`.
-4. The result is renormalized to sum to 100% and rounded for display.
+| Document | What's inside |
+|---|---|
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Components, models, data flow, design decisions |
+| **[SECURITY.md](SECURITY.md)** | Threat model, data handling, hardening checklist |
 
 ---
 
-## 🗺 Roadmap Ideas
+## 🗺 Roadmap
 
-- Dedicated face-landmark model shared across backend and client for perfect detection parity
-- Configurable smoothing window and temperature exposed directly in Settings
-- Exportable session trend reports (PDF)
+- [ ] Shared face-landmark model across client and backend
+- [ ] Smoothing window and temperature exposed in Settings
+- [ ] Head-pose based attention score
+- [ ] Exportable session trend reports (PDF)
+
+<div align="center">
+<sub>Built by <a href="https://github.com/Deep455-16">Deep455-16</a></sub>
+</div>
