@@ -10,9 +10,44 @@ How Expression Analyzer is put together: the two analysis paths, the models each
 
 The system is **hybrid**. It always works with zero setup in the browser, and it gets more accurate when a Python backend is reachable.
 
-<div align="center">
-<img src="docs/images/architecture.png" alt="Hybrid architecture" width="680">
-</div>
+
+```mermaid
+flowchart TB
+    IN["Webcam or file upload"] --> ENG["face-engine.js<br/>picks a path per frame"]
+
+    subgraph CLIENT["CLIENT PATH - in browser, offline-capable"]
+        TF["TinyFaceDetector<br/>face-api.js"] --> EN["faceExpressionNet<br/>7-class softmax"]
+    end
+
+    subgraph BACKEND["BACKEND PATH - optional, Flask"]
+        API["POST /api/analyze<br/>base64 JPEG in"] --> YOLO["YOLOv8n<br/>person detection"]
+        YOLO --> CROP["Head-region crop<br/>top 60% height, 15% side inset"]
+        YOLO -. on failure .-> HAAR["Haar Cascade<br/>fallback detector"]
+        HAAR -.-> CROP
+        CROP --> DF["DeepFace<br/>FER CNN, 7-class softmax"]
+        DF -. async .-> MDB[("MongoDB<br/>scores + boxes only, no images")]
+    end
+
+    ENG -->|local| TF
+    ENG -->|if /health ok| API
+    EN --> CAL["Score calibration<br/>temperature scaling + floor"]
+    DF --> CAL
+    CAL --> EMA["Temporal smoothing<br/>EMA per participant"]
+    EMA --> UI["Live / Upload / Dashboard<br/>with source badges"]
+    UI <-.-> IDB[("IndexedDB<br/>local only")]
+
+    classDef client fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef server fill:#ecfdf5,stroke:#059669,color:#064e3b
+    classDef tune fill:#fef9c3,stroke:#ca8a04,color:#713f12
+    classDef out fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef store fill:#f1f5f9,stroke:#64748b,color:#1e293b
+    class TF,EN,ENG,IN client
+    class API,YOLO,CROP,HAAR,DF server
+    class CAL,EMA tune
+    class UI out
+    class MDB,IDB store
+```
+
 
 Both paths produce the **same JSON shape** (`label`, `confidence`, `scores`, plus provenance tags). The UI, dashboard and storage layers never branch on which path ran.
 
@@ -71,9 +106,30 @@ Nothing leaves the device on this path. The only network traffic is fetching mod
 
 ## 4. Frame Flow
 
-<div align="center">
-<img src="docs/images/sequence.png" alt="Single-frame sequence" width="860">
-</div>
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Browser UI (live.js)
+    participant FE as face-engine.js
+    participant API as Flask backend
+    participant DET as YOLO / Haar
+    participant DF as DeepFace
+    participant DB as MongoDB
+
+    UI->>FE: capture frame (canvas)
+    FE->>API: POST /api/analyze (base64 JPEG)
+    API->>DET: detect person / face
+    DET-->>API: boxes + head-region crops
+    API->>DF: predict_emotion(crop)
+    DF-->>API: raw softmax scores
+    Note over API: temperature scale + floor
+    API-)DB: persist scores + bbox (async, no image)
+    API-->>FE: JSON: label, confidence, scores
+    Note over FE: EMA smoothing per participant
+    FE-->>UI: render overlay + source badge
+```
+
 
 1. The browser captures a frame to a canvas and encodes it as a base64 JPEG.
 2. `POST /api/analyze` sends it to Flask.
@@ -90,9 +146,19 @@ Nothing leaves the device on this path. The only network traffic is fetching mod
 
 Both emotion models are softmax classifiers trained on one-hot labels, so they are **overconfident by construction**. A moderately happy face can come out as `happy 99.6%`, everything else near zero.
 
-<div align="center">
-<img src="docs/images/calibration.png" alt="Before and after calibration" width="900">
-</div>
+
+| Emotion | Raw model output | After T = 2.0 | After T = 3.0 |
+|---|---|---|---|
+| happy | `████████████████████████` 99.6% | `█████████████████████` 88.5% | `█████████████████` 69.0% |
+| neutral | `▏` 0.2% | `█` 4.1% | `██` 8.8% |
+| surprised | `▏` 0.1% | `█` 2.7% | `██` 6.7% |
+| sad | `▏` 0.0% | `▏` 1.8% | `█` 5.1% |
+| angry | `▏` 0.0% | `▏` 1.3% | `█` 4.0% |
+| disgusted | `▏` 0.0% | `▏` 0.9% | `█` 3.2% |
+| fearful | `▏` 0.0% | `▏` 0.9% | `█` 3.2% |
+
+<sub>Illustrative example: one saturated softmax vector run through the actual smoothing math (floor 0.8%). Not a measured benchmark.</sub>
+
 
 ```
 raw softmax → normalise → p^(1/T) → renormalise → floor → renormalise → round
