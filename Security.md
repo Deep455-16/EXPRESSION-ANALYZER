@@ -19,9 +19,34 @@ Facial data is sensitive. This document states what happens to a face once it is
 
 ## 2. Data Flow
 
-<div align="center">
-<img src="docs/images/security.png" alt="Data flow and trust boundaries" width="780">
-</div>
+
+```mermaid
+flowchart LR
+    subgraph DEVICE["USER'S DEVICE - trusted"]
+        CAM["Webcam frame<br/>in memory"] --> LOCAL["face-api.js analysis<br/>no network call"]
+        LOCAL -->|numbers only| IDB[("IndexedDB<br/>scores only, auto-clear")]
+    end
+
+    subgraph SERVER["YOUR BACKEND - opt-in, you control it"]
+        API["Flask /api/analyze<br/>frame held in RAM"] --> DROP["Frame discarded<br/>after inference"]
+    end
+
+    subgraph DBX["DATABASE - credentials via env"]
+        MDB[("MongoDB<br/>scores, boxes, timestamps")]
+    end
+
+    CAM -->|"opt-in only, base64 JPEG"| API
+    API -->|"annotated_frame stripped first"| MDB
+    LOCAL -. blocked .-x TP["Third-party servers<br/>never receive frames"]
+
+    classDef ok fill:#ecfdf5,stroke:#16a34a,color:#14532d
+    classDef warn fill:#fffbeb,stroke:#d97706,color:#78350f
+    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    class CAM,LOCAL,IDB ok
+    class API,DROP warn
+    class TP bad
+```
+
 
 ---
 
