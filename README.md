@@ -335,8 +335,8 @@ EXPRESSION-ANALYZER/
 
 | Document | What's inside |
 |---|---|
-| **[Architecture.md](ARCHITECTURE.md)** | Components, models, data flow, design decisions |
-| **[Security.md](SECURITY.md)** | Threat model, data handling, hardening checklist |
+| **[ARCHITECTURE.md](ARCHITECTURE.md)** | Components, models, data flow, design decisions |
+| **[SECURITY.md](SECURITY.md)** | Threat model, data handling, hardening checklist |
 
 ---
 
