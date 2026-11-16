@@ -21,7 +21,7 @@ Runs fully in your browser, with an optional Python backend for higher accuracy.
 
 ## 💡 Why this exists
 
-Online meetings hide emotional signals. This tool reads facial expressions from each participant's video, turns them into live engagement analytics, and keeps the raw faces private while doing it.
+Online and Offline meetings hide emotional signals. This tool reads facial expressions from each participant's video, turns them into live engagement analytics, and keeps the raw faces private while doing it.
 
 | | |
 |---|---|
